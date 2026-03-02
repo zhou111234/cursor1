@@ -1,0 +1,34 @@
+# 定时抓取具身智能最新动态（可选）
+# 每日运行，将结果提交到 outputs/scraped/
+
+name: Scheduled Scrape
+
+on:
+  schedule:
+    - cron: '0 8 * * *'  # 每天 08:00 UTC
+  workflow_dispatch:
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install requests beautifulsoup4
+
+      - name: Run scrape
+        run: |
+          python .cursor/skills/embodied-ai-research/scripts/scrape_sources.py
+
+      - name: Upload scraped output
+        uses: actions/upload-artifact@v4
+        with:
+          name: scraped-${{ github.run_id }}
+          path: outputs/scraped/

@@ -1,0 +1,14 @@
+{
+  "resolution": "720x1280",
+  "format": "mp4",
+  "watermark": {
+    "text": "@your_account",
+    "position": "bottom-right"
+  },
+  "ops": [
+    {"type": "intro", "duration": 3},
+    {"type": "content", "source": "scraped"},
+    {"type": "watermark", "text": "@your_account"},
+    {"type": "export", "format": "mp4", "resolution": "720x1280"}
+  ]
+}

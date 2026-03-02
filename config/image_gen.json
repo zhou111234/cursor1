@@ -1,0 +1,14 @@
+{
+  "provider": "tongyi",
+  "tongyi": {
+    "model": "wanx2.1-t2i-turbo",
+    "size": "1024*1024",
+    "base_url": "https://dashscope.aliyuncs.com/api/v1"
+  },
+  "blotato": {
+    "endpoint": "https://api.blotato.com/v1/images",
+    "template_id": "default"
+  },
+  "fallback": "openai",
+  "prompt_template": "科技感示意图：{prompt}，简约风格，蓝色主调，适合短视频"
+}

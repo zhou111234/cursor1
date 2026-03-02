@@ -1,0 +1,47 @@
+{
+  "keywords": [
+    "具身智能",
+    "embodied AI",
+    "人形机器人",
+    "humanoid robot",
+    "机器人",
+    "robotics"
+  ],
+  "sources": [
+    {
+      "id": "arxiv-cs-ro",
+      "name": "arXiv cs.RO",
+      "url": "https://arxiv.org/list/cs.RO/recent",
+      "type": "web",
+      "enabled": true
+    },
+    {
+      "id": "xinhua-tech",
+      "name": "新华网科技",
+      "url": "http://www.news.cn/tech/",
+      "type": "web",
+      "enabled": true
+    },
+    {
+      "id": "chinaventure",
+      "name": "投中网",
+      "url": "https://www.chinaventure.com.cn/",
+      "type": "web",
+      "enabled": true
+    },
+    {
+      "id": "gasgoo",
+      "name": "盖世汽车",
+      "url": "https://www.gasgoo.com/",
+      "type": "web",
+      "enabled": true
+    },
+    {
+      "id": "36kr",
+      "name": "36氪",
+      "url": "https://36kr.com/",
+      "type": "web",
+      "enabled": true
+    }
+  ]
+}

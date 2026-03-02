@@ -1,0 +1,7 @@
+{
+  "ops": [
+    {"type": "concat", "inputs": ["outputs/drafts/test_input.mp4"]},
+    {"type": "watermark", "text": "@your_account"},
+    {"type": "export", "format": "mp4", "resolution": "720x1280"}
+  ]
+}

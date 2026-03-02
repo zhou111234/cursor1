@@ -1,0 +1,32 @@
+# 审核通过（PR 合并）后，将视频发布到抖音
+# 需要配置 GitHub Secrets: DOUYIN_ACCESS_TOKEN, DOUYIN_OPEN_ID（若使用 API）
+# 或配置 douyin-publish MCP 所需的环境
+
+name: Publish on Merge
+
+on:
+  pull_request:
+    types: [closed]
+
+jobs:
+  publish:
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: List published drafts
+        run: |
+          echo "Drafts to publish:"
+          find outputs/drafts -name "*.mp4" 2>/dev/null || true
+
+      # 使用 douyin-publish 或自建脚本
+      # 示例：若使用抖音开放平台 API，需配置 secrets
+      - name: Publish to Douyin (placeholder)
+        run: |
+          echo "To enable auto-publish:"
+          echo "1. Install douyin-publish: /learn @openclaw/douyin-publish"
+          echo "2. Or: Add publish script with DOUYIN_ACCESS_TOKEN, DOUYIN_OPEN_ID"
+          echo "3. Place approved video in outputs/drafts/"
+          # python scripts/publish_douyin.py
