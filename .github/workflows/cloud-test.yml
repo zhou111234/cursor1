@@ -1,0 +1,42 @@
+# 云端测试：在 GitHub Actions 中运行完整工作流
+# 手动触发：Actions → cloud-test → Run workflow
+
+name: Cloud Test
+
+on:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install FFmpeg
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Check environment
+        run: python scripts/check_env.py
+        env:
+          DASHSCOPE_API_KEY: ${{ secrets.DASHSCOPE_API_KEY }}
+
+      - name: Run workflow
+        run: python run_workflow.py
+        env:
+          DASHSCOPE_API_KEY: ${{ secrets.DASHSCOPE_API_KEY }}
+
+      - name: Upload outputs
+        uses: actions/upload-artifact@v4
+        with:
+          name: workflow-outputs
+          path: |
+            outputs/scraped/
+            outputs/drafts/
