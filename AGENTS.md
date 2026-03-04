@@ -64,7 +64,6 @@
 - 使用 `python3` 而非 `python`，Cloud VM 上 `python` 可能不在 PATH 中。
 - `DASHSCOPE_API_KEY` 通过 Cursor Secrets 注入，`generate_image.py` 会自动读取环境变量调用通义万相 API。缺失时降级为 Pillow 纯色占位图，工作流仍可完成。
 - 通义万相 API 调用（阶段 2a）耗时约 20-25 秒，整个工作流约 30 秒，属正常。
-- `process_video.py` 的 overlay 操作在 FFmpeg 6.1 下存在 filter_complex 兼容性问题（scale2ref 变量），其余操作（concat / watermark / trim / scale / export）均正常。
 - 部分抓取源（如 gasgoo.com）在云端可能因 SSL 证书问题失败，不影响整体抓取结果。
 - `outputs/` 目录下的文件为运行产物，不需要提交到仓库。
 - Lint/测试：本项目无专门的 lint 或测试框架配置，验证方式为 `python3 scripts/check_env.py`（环境检查）和 `python3 run_workflow.py`（端到端工作流验证）。
