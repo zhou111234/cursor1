@@ -102,9 +102,9 @@ def extract_generic(html: str, url: str, source_name: str) -> list[dict]:
 
 
 def main():
-    parser = Path(__file__).resolve()
+    script_path = Path(__file__).resolve()
     # scripts/ -> embodied-ai-research/ -> skills/ -> .cursor/ -> project_root
-    project_root = parser.parent.parent.parent.parent.parent
+    project_root = script_path.parent.parent.parent.parent.parent
     config_path = project_root / "config" / "sources.json"
     output_dir = project_root / "outputs" / "scraped"
 
@@ -126,7 +126,6 @@ def main():
             continue
         url = src["url"]
         name = src.get("name", "Unknown")
-        source_type = src.get("type", "web")
 
         html = fetch_url(url)
         if not html:

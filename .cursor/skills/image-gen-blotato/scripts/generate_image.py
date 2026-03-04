@@ -133,14 +133,12 @@ def main():
 
     Path(output_path).parent.mkdir(parents=True, exist_ok=True)
 
+    success = False
     if provider == "tongyi" and os.environ.get("DASHSCOPE_API_KEY"):
         success = generate_tongyi(prompt, output_path, config)
-    elif os.environ.get("BLOTATO_API_KEY") and provider == "blotato":
-        print("Blotato API: configure endpoint in config/image_gen.json", file=sys.stderr)
-        success = generate_placeholder(prompt, output_path)
-    elif os.environ.get("OPENAI_API_KEY"):
+    if not success and os.environ.get("OPENAI_API_KEY"):
         success = generate_openai(prompt, output_path)
-    else:
+    if not success:
         success = generate_placeholder(prompt, output_path)
 
     if success:

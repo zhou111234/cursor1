@@ -30,8 +30,15 @@ def run_ffmpeg(args: list[str]) -> bool:
 
 def op_concat(inputs: list[str], output: str, workdir: Path) -> str | None:
     """Concatenate videos using concat demuxer."""
+    if not inputs:
+        print("Concat: no input files provided", file=sys.stderr)
+        return None
+    for p in inputs:
+        if not Path(p).exists():
+            print(f"Concat: input file not found: {p}", file=sys.stderr)
+            return None
     if len(inputs) < 2:
-        return inputs[0] if inputs else None
+        return inputs[0]
     list_file = workdir / "concat_list.txt"
     with open(list_file, "w") as f:
         for p in inputs:
@@ -58,7 +65,9 @@ def op_scale(input_path: str, output: str, width: int = 720, height: int = 1280)
 
 def op_overlay(input_path: str, image_path: str, output: str, position: str = "top-right") -> str | None:
     """Overlay image on video."""
-    # position: top-right, top-left, bottom-right, bottom-left, center
+    if not Path(image_path).exists():
+        print(f"Overlay: image not found: {image_path}", file=sys.stderr)
+        return None
     pos_map = {
         "top-right": "main_w-overlay_w-10:10",
         "top-left": "10:10",
@@ -67,7 +76,7 @@ def op_overlay(input_path: str, image_path: str, output: str, position: str = "t
         "center": "(main_w-overlay_w)/2:(main_h-overlay_h)/2",
     }
     overlay_pos = pos_map.get(position, pos_map["top-right"])
-    filter_str = f"[1:v]scale=min(iw\\,main_w/4):-1[ov];[0:v][ov]overlay={overlay_pos}"
+    filter_str = f"[0:v][1:v]scale2ref=iw/4:ow/iw*ih[ov][base];[base][ov]overlay={overlay_pos}"
     args = ["-i", input_path, "-i", image_path, "-filter_complex", filter_str, "-c:a", "copy", output]
     if run_ffmpeg(args):
         return output
@@ -117,17 +126,20 @@ def process_instructions(instructions: dict, workdir: Path, output_path: str) ->
             current = op_scale(current, str(workdir / f"step_{i}.mp4"), w, h)
         elif op_type == "overlay":
             if not current:
+                print("Overlay needs prior output", file=sys.stderr)
                 return False
             img = op.get("image", "")
             pos = op.get("position", "top-right")
             current = op_overlay(current, img, str(workdir / f"step_{i}.mp4"), pos)
         elif op_type == "watermark":
             if not current:
+                print("Watermark needs prior output", file=sys.stderr)
                 return False
             text = op.get("text", "@account")
             current = op_watermark(current, str(workdir / f"step_{i}.mp4"), text)
         elif op_type == "trim":
             if not current:
+                print("Trim needs prior output", file=sys.stderr)
                 return False
             start = op.get("start", 0)
             end = op.get("end", 30)

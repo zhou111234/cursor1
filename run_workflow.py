@@ -14,8 +14,9 @@ PROJECT_ROOT = Path(__file__).resolve().parent
 
 def run(cmd: list[str], cwd: Path = PROJECT_ROOT) -> bool:
     r = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True)
+    if r.stderr:
+        print(r.stderr.strip(), file=sys.stderr)
     if r.returncode != 0:
-        print(r.stderr, file=sys.stderr)
         return False
     if r.stdout:
         print(r.stdout.strip())
@@ -60,13 +61,12 @@ def main():
                        "-c:v", "libx264", "-pix_fmt", "yuv420p", str(base_video), "-y"],
                       cwd=PROJECT_ROOT, capture_output=True, check=True)
 
-    instr = {
-        "ops": [
-            {"type": "concat", "inputs": [str(base_video)]},
-            {"type": "watermark", "text": "@具身智能"},
-            {"type": "export", "format": "mp4", "resolution": "720x1280"}
-        ]
-    }
+    ops = [{"type": "concat", "inputs": [str(base_video)]}]
+    if img_path.exists():
+        ops.append({"type": "overlay", "image": str(img_path), "position": "center"})
+    ops.append({"type": "watermark", "text": "@具身智能"})
+    ops.append({"type": "export", "format": "mp4", "resolution": "720x1280"})
+    instr = {"ops": ops}
     instr_path = drafts / "workflow_instructions.json"
     with open(instr_path, "w", encoding="utf-8") as f:
         json.dump(instr, f, ensure_ascii=False, indent=2)
