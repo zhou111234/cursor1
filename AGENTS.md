@@ -44,3 +44,25 @@
 审核通过后：
 1. **手动**：在 Cursor 中执行 `/publish`，Agent 调用 douyin-publish skill
 2. **自动**：合并 PR 后，GitHub Action `.github/workflows/publish-on-merge.yml` 可触发发布（需配置 secrets 或 douyin-publish 环境）
+
+## Cursor Cloud specific instructions
+
+### 服务概览
+
+这是一个纯 Python 项目，无 Node.js / Docker / 数据库依赖。核心组件：
+
+| 组件 | 用途 |
+|------|------|
+| `run_workflow.py` | 一键执行 抓取→生图→剪辑 |
+| `scripts/check_env.py` | 环境就绪检查 |
+| `.cursor/skills/embodied-ai-research/scripts/scrape_sources.py` | 抓取具身智能新闻 |
+| `.cursor/skills/image-gen-blotato/scripts/generate_image.py` | AI 配图生成（支持降级到 Pillow 占位图） |
+| `.cursor/skills/video-processing/scripts/process_video.py` | FFmpeg 视频合成 |
+
+### 运行注意事项
+
+- 使用 `python3` 而非 `python`，Cloud VM 上 `python` 可能不在 PATH 中。
+- `DASHSCOPE_API_KEY` / `OPENAI_API_KEY` 缺失时，配图会降级为 Pillow 纯色占位图，工作流仍可正常完成。
+- 部分抓取源（如 gasgoo.com）在云端可能因 SSL 证书问题失败，这是正常的，不影响整体抓取结果。
+- `outputs/` 目录下的文件为运行产物，不需要提交到仓库。
+- Lint/测试：本项目无专门的 lint 或测试框架配置，验证方式为 `python3 scripts/check_env.py`（环境检查）和 `python3 run_workflow.py`（端到端工作流验证）。
