@@ -25,23 +25,37 @@ def run(cmd: list[str], cwd: Path = PROJECT_ROOT) -> bool:
     return True
 
 
-def stage_scrape() -> list[dict]:
+def stage_scrape() -> tuple[list[dict], Path | None]:
+    """返回 (全部条目, 抓取文件路径)。视频阶段只取前 MAX_ITEMS 条。"""
     print("=== 阶段1: 信息抓取 ===")
     if not run([sys.executable, ".cursor/skills/embodied-ai-research/scripts/scrape_sources.py"]):
-        return []
+        return [], None
 
     scraped_dir = PROJECT_ROOT / "outputs" / "scraped"
     files = sorted(scraped_dir.glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True)
     if not files:
         print("无抓取结果", file=sys.stderr)
-        return []
+        return [], None
 
     with open(files[0], encoding="utf-8") as f:
         data = json.load(f)
-    items = data.get("items", [])[:MAX_ITEMS]
+    items = data.get("items", [])
     if not items:
         print("无有效条目", file=sys.stderr)
-    return items
+    return items, files[0]
+
+
+def stage_report(all_items: list[dict], scraped_file: Path) -> Path | None:
+    """阶段1.5: 生成今日报告。"""
+    print(f"\n=== 阶段1.5: 生成今日报告 ({len(all_items)} 条信息) ===")
+    report_dir = PROJECT_ROOT / "outputs" / "reports"
+    report_dir.mkdir(parents=True, exist_ok=True)
+    report_path = report_dir / f"report_{datetime.now().strftime('%Y-%m-%d_%H%M')}.md"
+
+    if run([sys.executable, "scripts/generate_report.py",
+            str(scraped_file), "--output", str(report_path)]):
+        return report_path
+    return None
 
 
 def stage_generate_images(items: list[dict], drafts: Path) -> Path:
@@ -110,21 +124,28 @@ def stage_legacy(items: list[dict], drafts: Path) -> Path | None:
 
 def main():
     legacy_mode = "--legacy" in sys.argv
-    items = stage_scrape()
-    if not items:
+    all_items, scraped_file = stage_scrape()
+    if not all_items:
         return 1
 
+    report_path = stage_report(all_items, scraped_file)
+    if report_path:
+        print(f"报告已生成: {report_path}")
+
+    video_items = all_items[:MAX_ITEMS]
     drafts = PROJECT_ROOT / "outputs" / "drafts"
     drafts.mkdir(parents=True, exist_ok=True)
 
     if legacy_mode:
-        out = stage_legacy(items, drafts)
+        out = stage_legacy(video_items, drafts)
     else:
-        img_dir = stage_generate_images(items, drafts)
-        out = stage_video_template(items, img_dir, drafts)
+        img_dir = stage_generate_images(video_items, drafts)
+        out = stage_video_template(video_items, img_dir, drafts)
 
     if out:
         print(f"\n完成: {out}")
+        if report_path:
+            print(f"报告: {report_path}")
         return 0
     return 1
 
