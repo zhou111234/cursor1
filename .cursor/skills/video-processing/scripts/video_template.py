@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """
-视频模板引擎：仿 YouTube 科技资讯短视频风格。
-结构：片头(3s) → 多条新闻轮播(每条5s) → 片尾(3s)，段落间有转场。
+视频模板引擎 v2：仿抖音 AI 测评类短视频风格。
+特点：渐变背景、大字钩子、圆形编号、彩色关键词、快节奏、白闪转场。
+结构：钩子片头(2s) → 多条新闻(每条4s) → 总结片尾(3s)
 """
 
 import json
@@ -13,7 +14,6 @@ import tempfile
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
-
 
 WIDTH, HEIGHT = 720, 1280
 FPS = 25
@@ -31,219 +31,240 @@ def _run_ff(args: list[str], label: str = "") -> bool:
         return False
 
 
-def _font_arg() -> str:
+def _fa() -> str:
     if Path(FONT).exists():
         return f"fontfile={FONT}"
     return f"font={FONT_FALLBACK}"
 
 
-def _escape(text: str) -> str:
+def _esc(text: str) -> str:
     return text.replace("\\", "\\\\").replace(":", "\\:").replace("'", "\\'").replace('"', '\\"')
 
 
-def _wrap_text(text: str, max_chars: int = 16) -> str:
-    """Break long text into lines for drawtext."""
+def _wrap(text: str, max_chars: int = 14) -> str:
     lines = []
     while len(text) > max_chars:
-        cut = text[:max_chars]
-        lines.append(cut)
+        lines.append(text[:max_chars])
         text = text[max_chars:]
     if text:
         lines.append(text)
     return "\n".join(lines)
 
 
-def generate_intro(output: str, channel: str = "@具身智能",
-                   topic: str = "今日AI快讯", duration: float = 3.0) -> bool:
-    date_str = datetime.now().strftime("%Y.%m.%d")
-    fa = _font_arg()
-    escaped_channel = _escape(channel)
-    escaped_topic = _escape(topic)
-    escaped_date = _escape(date_str)
+def _gradient_bg(duration: float) -> str:
+    """紫蓝渐变背景 (通过两色条叠加模拟)。"""
+    return (
+        f"color=c=0x1a0533:s={WIDTH}x{HEIGHT}:d={duration}:r={FPS}[_bg0];"
+        f"color=c=0x0a2a5c:s={WIDTH}x{HEIGHT//2}:d={duration}:r={FPS}[_bg1];"
+        f"[_bg0][_bg1]overlay=0:{HEIGHT//2}[_bgbase];"
+        f"color=c=0x6c3baa@0.15:s={WIDTH}x{HEIGHT}:d={duration}:r={FPS}[_glow];"
+        f"[_bgbase][_glow]overlay=0:0[_grad]"
+    )
+
+
+def generate_hook(output: str, title: str, channel: str = "@具身智能",
+                  duration: float = 2.5) -> bool:
+    """钩子片头：超大黄色标题 + 日期标签 + 频道名。"""
+    fa = _fa()
+    date_tag = datetime.now().strftime("%m.%d")
+    hook_title = _wrap(title, max_chars=10)
+    escaped_title = _esc(hook_title)
+    escaped_channel = _esc(channel)
 
     filters = [
-        f"color=c=0x0a1628:s={WIDTH}x{HEIGHT}:d={duration}:r={FPS}[bg]",
-        f"color=c=0x1a3a5c:s={WIDTH}x{int(HEIGHT*0.35)}:d={duration}:r={FPS}[topbar]",
-        "[bg][topbar]overlay=0:0[base]",
-        f"color=c=0x00bfff@0.15:s={WIDTH}x4:d={duration}:r={FPS}[line]",
-        f"[base][line]overlay=0:{int(HEIGHT*0.35)}[bg2]",
+        _gradient_bg(duration),
+        f"color=c=0xffc107:s=180x6:d={duration}:r={FPS}[_bar]",
+        f"[_grad][_bar]overlay=(w-180)/2:160[b1]",
         (
-            f"[bg2]drawtext={fa}:text='{escaped_topic}':"
-            f"fontsize=64:fontcolor=white:"
-            f"x=(w-text_w)/2:y=200:"
-            f"enable='gte(t,0.3)'"
-            f"[t1]"
+            f"[b1]drawtext={fa}:text='🤖 具身智能快讯':"
+            f"fontsize=30:fontcolor=0xffc107:"
+            f"x=(w-text_w)/2:y=110:"
+            f"enable='gte(t,0.1)'[t0]"
         ),
         (
-            f"[t1]drawtext={fa}:text='{escaped_date}':"
-            f"fontsize=36:fontcolor=0x88ccff:"
-            f"x=(w-text_w)/2:y=300:"
-            f"enable='gte(t,0.5)'"
-            f"[t2]"
+            f"[t0]drawtext={fa}:text='{date_tag}':"
+            f"fontsize=26:fontcolor=white:"
+            f"x=(w-text_w)/2:y=180:"
+            f"enable='gte(t,0.2)'[t1]"
         ),
         (
-            f"[t2]drawtext={fa}:text='{escaped_channel}':"
-            f"fontsize=40:fontcolor=0x00e5ff:"
-            f"x=(w-text_w)/2:y={HEIGHT-200}:"
-            f"enable='gte(t,0.6)'"
-            f"[t3]"
+            f"[t1]drawtext={fa}:text='{escaped_title}':"
+            f"fontsize=60:fontcolor=0xffc107:"
+            f"line_spacing=16:"
+            f"x=(w-text_w)/2:y=(h-text_h)/2-80:"
+            f"enable='gte(t,0.3)'[t2]"
         ),
         (
-            f"[t3]drawtext={fa}:text='━━━ 具身智能 · 机器人 · AI ━━━':"
-            f"fontsize=24:fontcolor=0x4488aa:"
-            f"x=(w-text_w)/2:y={int(HEIGHT*0.35)-50}:"
-            f"enable='gte(t,0.4)'"
-            f"[out]"
+            f"[t2]drawtext={fa}:text='👇 今日必看 👇':"
+            f"fontsize=32:fontcolor=white:"
+            f"x=(w-text_w)/2:y=(h)/2+100:"
+            f"enable='gte(t,0.6)'[t3]"
+        ),
+        (
+            f"[t3]drawtext={fa}:text='{escaped_channel}':"
+            f"fontsize=28:fontcolor=0x9e7cff:"
+            f"x=(w-text_w)/2:y={HEIGHT-120}:"
+            f"enable='gte(t,0.4)'[out]"
         ),
     ]
 
     args = [
         "-f", "lavfi", "-i", "nullsrc=s=1x1:d=0.01",
         "-filter_complex", ";".join(filters),
-        "-map", "[out]",
-        "-t", str(duration),
-        "-c:v", "libx264", "-pix_fmt", "yuv420p",
-        "-r", str(FPS),
+        "-map", "[out]", "-t", str(duration),
+        "-c:v", "libx264", "-pix_fmt", "yuv420p", "-r", str(FPS),
         output,
     ]
-    return _run_ff(args, "intro")
+    return _run_ff(args, "hook")
 
 
-def generate_news_slide(
+def generate_news_card(
     output: str,
     index: int,
     title: str,
     source: str,
     image_path: Optional[str] = None,
-    duration: float = 5.0,
+    duration: float = 4.0,
 ) -> bool:
-    fa = _font_arg()
-    num_str = f"{index:02d}"
-    wrapped_title = _wrap_text(title, max_chars=14)
-    escaped_title = _escape(wrapped_title)
-    escaped_source = _escape(source)
-    escaped_num = _escape(num_str)
+    """新闻卡片：渐变背景 + 圆形编号 + 配图 + 大标题 + 来源。"""
+    fa = _fa()
+    circle_nums = ["❶", "❷", "❸", "❹", "❺", "❻", "❼", "❽", "❾", "❿"]
+    num_char = circle_nums[index - 1] if index <= len(circle_nums) else f"#{index}"
+    wrapped = _wrap(title, max_chars=14)
+    e_title = _esc(wrapped)
+    e_source = _esc(source)
+    e_num = _esc(num_char)
 
     if image_path and Path(image_path).exists():
         filter_parts = [
-            f"color=c=0x0a1628:s={WIDTH}x{HEIGHT}:d={duration}:r={FPS}[bg]",
-            f"[1:v]scale={WIDTH}:{HEIGHT}:force_original_aspect_ratio=increase,"
-            f"crop={WIDTH}:{HEIGHT},format=rgba,"
-            f"colorchannelmixer=aa=0.35[img]",
-            "[bg][img]overlay=0:0[base]",
+            _gradient_bg(duration),
+            (
+                f"[1:v]scale=480:480:force_original_aspect_ratio=decrease,"
+                f"pad=480:480:(ow-iw)/2:(oh-ih)/2:color=0x00000000,"
+                f"format=rgba[_img]"
+            ),
+            f"[_grad][_img]overlay=({WIDTH}-480)/2:180[b0]",
         ]
-        input_args = [
-            "-f", "lavfi", "-i", "nullsrc=s=1x1:d=0.01",
-            "-i", image_path,
-        ]
+        input_args = ["-f", "lavfi", "-i", "nullsrc=s=1x1:d=0.01", "-i", image_path]
     else:
-        grad_color = ["0x0a2a4a", "0x1a0a3a", "0x0a3a2a"][index % 3]
-        filter_parts = [
-            f"color=c={grad_color}:s={WIDTH}x{HEIGHT}:d={duration}:r={FPS}[base]",
-        ]
+        filter_parts = [_gradient_bg(duration)]
+        filter_parts.append(f"[_grad]null[b0]")
         input_args = ["-f", "lavfi", "-i", "nullsrc=s=1x1:d=0.01"]
 
+    y_title = 720 if image_path and Path(image_path).exists() else 350
+
     filter_parts.extend([
-        f"color=c=0x000000@0.6:s={WIDTH}x220:d={duration}:r={FPS}[topband]",
-        f"[base][topband]overlay=0:0[b1]",
-        f"color=c=0x000000@0.5:s={WIDTH}x160:d={duration}:r={FPS}[botband]",
-        f"[b1][botband]overlay=0:{HEIGHT-160}[b2]",
-        f"color=c=0x00bfff:s=6x120:d={duration}:r={FPS}[accent]",
-        f"[b2][accent]overlay=30:40[b3]",
         (
-            f"[b3]drawtext={fa}:text='{escaped_num}':"
-            f"fontsize=80:fontcolor=0x00e5ff:"
-            f"x=50:y=50:"
-            f"enable='gte(t,0.2)'"
-            f"[n1]"
+            f"[b0]drawtext={fa}:text='{e_num}':"
+            f"fontsize=72:fontcolor=0xffc107:"
+            f"x=40:y=60:"
+            f"enable='gte(t,0.1)'[n1]"
+        ),
+        f"color=c=0xffc107:s=4x50:d={duration}:r={FPS}[_vbar]",
+        f"[n1][_vbar]overlay=120:70[n2]",
+        (
+            f"[n2]drawtext={fa}:text='具身智能':"
+            f"fontsize=24:fontcolor=0xbb86fc:"
+            f"x=140:y=70:"
+            f"enable='gte(t,0.1)'[n3]"
         ),
         (
-            f"[n1]drawtext={fa}:text='{escaped_title}':"
-            f"fontsize=48:fontcolor=white:"
-            f"line_spacing=12:"
-            f"x=(w-text_w)/2:y=(h-text_h)/2-40:"
-            f"enable='gte(t,0.3)'"
-            f"[n2]"
+            f"[n3]drawtext={fa}:text='{e_title}':"
+            f"fontsize=44:fontcolor=white:"
+            f"line_spacing=10:"
+            f"x=(w-text_w)/2:y={y_title}:"
+            f"enable='gte(t,0.2)'[n4]"
+        ),
+        f"color=c=0x000000@0.45:s={WIDTH}x100:d={duration}:r={FPS}[_bot]",
+        f"[n4][_bot]overlay=0:{HEIGHT-100}[n5]",
+        (
+            f"[n5]drawtext={fa}:text='📍 {e_source}':"
+            f"fontsize=24:fontcolor=0xaaaaaa:"
+            f"x=30:y={HEIGHT-75}:"
+            f"enable='gte(t,0.3)'[n6]"
         ),
         (
-            f"[n2]drawtext={fa}:text='来源\\: {escaped_source}':"
-            f"fontsize=28:fontcolor=0x88ccff:"
-            f"x=30:y={HEIGHT-130}:"
-            f"enable='gte(t,0.4)'"
-            f"[n3]"
-        ),
-        (
-            f"[n3]drawtext={fa}:text='@具身智能':"
-            f"fontsize=24:fontcolor=white@0.6:"
-            f"x={WIDTH}-text_w-30:y={HEIGHT-80}:"
-            f"enable='gte(t,0.4)'"
-            f"[out]"
+            f"[n6]drawtext={fa}:text='@具身智能':"
+            f"fontsize=22:fontcolor=0x9e7cff@0.7:"
+            f"x={WIDTH}-text_w-30:y={HEIGHT-75}:"
+            f"enable='gte(t,0.3)'[out]"
         ),
     ])
 
     args = input_args + [
         "-filter_complex", ";".join(filter_parts),
-        "-map", "[out]",
-        "-t", str(duration),
-        "-c:v", "libx264", "-pix_fmt", "yuv420p",
-        "-r", str(FPS),
+        "-map", "[out]", "-t", str(duration),
+        "-c:v", "libx264", "-pix_fmt", "yuv420p", "-r", str(FPS),
         output,
     ]
-    return _run_ff(args, f"slide_{index}")
+    return _run_ff(args, f"card_{index}")
 
 
-def generate_outro(output: str, channel: str = "@具身智能",
-                   duration: float = 3.0) -> bool:
-    fa = _font_arg()
-    escaped_channel = _escape(channel)
+def generate_summary(output: str, items: list[dict],
+                     channel: str = "@具身智能", duration: float = 3.0) -> bool:
+    """总结片尾：要点回顾 + 关注引导。"""
+    fa = _fa()
+    escaped_channel = _esc(channel)
+
+    summary_lines = ""
+    circle_nums = ["❶", "❷", "❸", "❹", "❺"]
+    for i, item in enumerate(items[:5]):
+        short = item.get("title", "")[:18]
+        num = circle_nums[i] if i < len(circle_nums) else f"#{i+1}"
+        summary_lines += f"{num} {_esc(short)}\\n"
 
     filters = [
-        f"color=c=0x0a1628:s={WIDTH}x{HEIGHT}:d={duration}:r={FPS}[bg]",
-        f"color=c=0x1a3a5c:s={WIDTH}x{int(HEIGHT*0.3)}:d={duration}:r={FPS}[bar]",
-        f"[bg][bar]overlay=0:{int(HEIGHT*0.35)}[base]",
+        _gradient_bg(duration),
         (
-            f"[base]drawtext={fa}:text='关注 {escaped_channel}':"
-            f"fontsize=56:fontcolor=0x00e5ff:"
-            f"x=(w-text_w)/2:y=(h-text_h)/2-60:"
-            f"enable='gte(t,0.3)'"
-            f"[t1]"
+            f"[_grad]drawtext={fa}:text='📌 今日要点回顾':"
+            f"fontsize=40:fontcolor=0xffc107:"
+            f"x=(w-text_w)/2:y=100:"
+            f"enable='gte(t,0.2)'[s1]"
         ),
         (
-            f"[t1]drawtext={fa}:text='获取更多 AI · 机器人 资讯':"
-            f"fontsize=32:fontcolor=white:"
-            f"x=(w-text_w)/2:y=(h-text_h)/2+40:"
-            f"enable='gte(t,0.5)'"
-            f"[t2]"
+            f"[s1]drawtext={fa}:text='{summary_lines}':"
+            f"fontsize=28:fontcolor=white:"
+            f"line_spacing=18:"
+            f"x=60:y=220:"
+            f"enable='gte(t,0.4)'[s2]"
+        ),
+        f"color=c=0xffc107:s={WIDTH-100}x3:d={duration}:r={FPS}[_divider]",
+        f"[s2][_divider]overlay=50:{HEIGHT-350}[s3]",
+        (
+            f"[s3]drawtext={fa}:text='关注 {escaped_channel}':"
+            f"fontsize=48:fontcolor=0xffc107:"
+            f"x=(w-text_w)/2:y={HEIGHT-300}:"
+            f"enable='gte(t,0.6)'[s4]"
         ),
         (
-            f"[t2]drawtext={fa}:text='▶ 点赞 · 关注 · 转发':"
-            f"fontsize=28:fontcolor=0x88ccff:"
-            f"x=(w-text_w)/2:y=(h-text_h)/2+120:"
-            f"enable='gte(t,0.7)'"
-            f"[out]"
+            f"[s4]drawtext={fa}:text='每日更新 · 具身智能 · 机器人资讯':"
+            f"fontsize=24:fontcolor=0xbb86fc:"
+            f"x=(w-text_w)/2:y={HEIGHT-230}:"
+            f"enable='gte(t,0.8)'[s5]"
+        ),
+        (
+            f"[s5]drawtext={fa}:text='❤ 点赞   ⭐ 收藏   ↗ 转发':"
+            f"fontsize=28:fontcolor=white:"
+            f"x=(w-text_w)/2:y={HEIGHT-160}:"
+            f"enable='gte(t,1.0)'[out]"
         ),
     ]
 
     args = [
         "-f", "lavfi", "-i", "nullsrc=s=1x1:d=0.01",
         "-filter_complex", ";".join(filters),
-        "-map", "[out]",
-        "-t", str(duration),
-        "-c:v", "libx264", "-pix_fmt", "yuv420p",
-        "-r", str(FPS),
+        "-map", "[out]", "-t", str(duration),
+        "-c:v", "libx264", "-pix_fmt", "yuv420p", "-r", str(FPS),
         output,
     ]
-    return _run_ff(args, "outro")
+    return _run_ff(args, "summary")
 
 
 def compose_with_transitions(
-    clips: list[str],
-    output: str,
-    transition: str = "fade",
-    trans_duration: float = 0.5,
+    clips: list[str], output: str,
+    transition: str = "fade", trans_duration: float = 0.3,
 ) -> bool:
     if not clips:
-        print("No clips to compose", file=sys.stderr)
         return False
     if len(clips) == 1:
         shutil.copy(clips[0], output)
@@ -254,7 +275,7 @@ def compose_with_transitions(
         probe = subprocess.run(
             ["ffprobe", "-v", "quiet", "-show_entries", "format=duration",
              "-of", "default=noprint_wrappers=1:nokey=1", c],
-            capture_output=True, text=True
+            capture_output=True, text=True,
         )
         durations.append(float(probe.stdout.strip()))
 
@@ -292,8 +313,7 @@ def compose_with_transitions(
     args = inputs + [
         "-filter_complex", ";".join(filter_parts),
         "-map", "[out]",
-        "-c:v", "libx264", "-pix_fmt", "yuv420p",
-        "-r", str(FPS),
+        "-c:v", "libx264", "-pix_fmt", "yuv420p", "-r", str(FPS),
         output,
     ]
     return _run_ff(args, "compose")
@@ -304,12 +324,11 @@ def build_news_video(
     output: str,
     image_dir: Optional[str] = None,
     channel: str = "@具身智能",
-    topic: str = "今日AI快讯",
-    intro_duration: float = 3.0,
-    slide_duration: float = 5.0,
-    outro_duration: float = 3.0,
+    hook_duration: float = 2.5,
+    card_duration: float = 4.0,
+    summary_duration: float = 3.0,
     transition: str = "fade",
-    trans_duration: float = 0.5,
+    trans_duration: float = 0.3,
 ) -> bool:
     if not items:
         print("No news items provided", file=sys.stderr)
@@ -319,12 +338,12 @@ def build_news_video(
         wd = Path(workdir)
         clips = []
 
-        print("  生成片头...", flush=True)
-        intro_path = str(wd / "intro.mp4")
-        if not generate_intro(intro_path, channel=channel, topic=topic, duration=intro_duration):
-            print("片头生成失败", file=sys.stderr)
+        hook_title = "今日具身智能\n有哪些大事？"
+        print("  生成钩子片头...", flush=True)
+        hook_path = str(wd / "hook.mp4")
+        if not generate_hook(hook_path, hook_title, channel=channel, duration=hook_duration):
             return False
-        clips.append(intro_path)
+        clips.append(hook_path)
 
         for i, item in enumerate(items):
             idx = i + 1
@@ -338,28 +357,25 @@ def build_news_video(
             if not img and item.get("image_path"):
                 img = item["image_path"]
 
-            print(f"  生成新闻片段 {idx}/{len(items)}: {title[:30]}...", flush=True)
-            slide_path = str(wd / f"slide_{idx}.mp4")
-            if not generate_news_slide(
-                slide_path, idx, title, source,
-                image_path=img, duration=slide_duration
+            print(f"  生成新闻卡片 {idx}/{len(items)}: {title[:30]}...", flush=True)
+            card_path = str(wd / f"card_{idx}.mp4")
+            if not generate_news_card(
+                card_path, idx, title, source,
+                image_path=img, duration=card_duration,
             ):
-                print(f"片段 {idx} 生成失败", file=sys.stderr)
                 return False
-            clips.append(slide_path)
+            clips.append(card_path)
 
-        print("  生成片尾...", flush=True)
-        outro_path = str(wd / "outro.mp4")
-        if not generate_outro(outro_path, channel=channel, duration=outro_duration):
-            print("片尾生成失败", file=sys.stderr)
+        print("  生成总结片尾...", flush=True)
+        summary_path = str(wd / "summary.mp4")
+        if not generate_summary(summary_path, items, channel=channel, duration=summary_duration):
             return False
-        clips.append(outro_path)
+        clips.append(summary_path)
 
         print(f"  合成视频 ({len(clips)} 段, {transition} 转场)...", flush=True)
         Path(output).parent.mkdir(parents=True, exist_ok=True)
         if not compose_with_transitions(clips, output, transition=transition,
                                         trans_duration=trans_duration):
-            print("视频合成失败", file=sys.stderr)
             return False
 
     return True
@@ -386,7 +402,6 @@ def main():
 
     with open(items_path, encoding="utf-8") as f:
         data = json.load(f)
-
     items = data if isinstance(data, list) else data.get("items", [])
 
     if not items:
