@@ -42,6 +42,25 @@
       "url": "https://36kr.com/",
       "type": "web",
       "enabled": true
+    },
+    {
+      "id": "youtube-embodied-ai",
+      "name": "YouTube",
+      "type": "youtube",
+      "queries": [
+        "具身智能 机器人 2025",
+        "embodied AI humanoid robot",
+        "人形机器人 最新进展"
+      ],
+      "max_results": 8,
+      "enabled": true
+    },
+    {
+      "id": "llm-topics",
+      "name": "AI热点分析",
+      "type": "llm",
+      "num_topics": 5,
+      "enabled": true
     }
   ]
 }

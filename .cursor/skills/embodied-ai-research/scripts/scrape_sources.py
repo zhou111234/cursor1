@@ -1,15 +1,18 @@
 #!/usr/bin/env python3
 """
 Scrapes configured sources for embodied AI and robotics news.
+Supports web pages, YouTube search, and LLM topic generation.
 Outputs structured JSON for downstream video production.
 """
 
 import json
+import os
+import re
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
-from urllib.parse import urljoin
+from urllib.parse import urljoin, quote
 
 try:
     import requests
@@ -101,6 +104,133 @@ def extract_generic(html: str, url: str, source_name: str) -> list[dict]:
     return unique[:15]
 
 
+def extract_youtube(query: str, source_name: str = "YouTube", max_results: int = 10) -> list[dict]:
+    """Search YouTube and extract video titles as news items."""
+    url = f"https://www.youtube.com/results?search_query={quote(query)}"
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+    }
+    try:
+        r = requests.get(url, headers=headers, timeout=15)
+        r.raise_for_status()
+    except Exception as e:
+        print(f"YouTube fetch failed: {e}", file=sys.stderr)
+        return []
+
+    match = re.search(r"var ytInitialData = ({.*?});", r.text)
+    if not match:
+        print("YouTube: ytInitialData not found", file=sys.stderr)
+        return []
+
+    try:
+        data = json.loads(match.group(1))
+    except json.JSONDecodeError:
+        print("YouTube: JSON parse error", file=sys.stderr)
+        return []
+
+    items = []
+    contents = (
+        data.get("contents", {})
+        .get("twoColumnSearchResultsRenderer", {})
+        .get("primaryContents", {})
+        .get("sectionListRenderer", {})
+        .get("contents", [])
+    )
+    for section in contents:
+        for entry in section.get("itemSectionRenderer", {}).get("contents", []):
+            vid = entry.get("videoRenderer", {})
+            if not vid:
+                continue
+            title = vid.get("title", {}).get("runs", [{}])[0].get("text", "")
+            if not title:
+                continue
+            vid_id = vid.get("videoId", "")
+            channel = vid.get("ownerText", {}).get("runs", [{}])[0].get("text", "")
+            desc_parts = vid.get("detailedMetadataSnippets", [{}])
+            summary = ""
+            if desc_parts:
+                snippet_runs = desc_parts[0].get("snippetText", {}).get("runs", [])
+                summary = "".join(r.get("text", "") for r in snippet_runs)
+
+            items.append({
+                "title": title[:200],
+                "summary": (summary or title)[:300],
+                "source": f"{source_name} | {channel}" if channel else source_name,
+                "url": f"https://www.youtube.com/watch?v={vid_id}" if vid_id else "",
+                "image_urls": [],
+                "video_urls": [f"https://www.youtube.com/watch?v={vid_id}"] if vid_id else [],
+                "published_at": datetime.now(timezone.utc).isoformat(),
+            })
+            if len(items) >= max_results:
+                break
+        if len(items) >= max_results:
+            break
+
+    return items
+
+
+def generate_llm_topics(api_key: str, num_topics: int = 5) -> list[dict]:
+    """Use DashScope Qwen to generate trending embodied AI topics."""
+    try:
+        from dashscope import Generation
+    except ImportError:
+        print("LLM topics: dashscope not installed", file=sys.stderr)
+        return []
+
+    today = datetime.now().strftime("%Y年%m月%d日")
+    prompt = (
+        f"你是具身智能和机器人行业的资深分析师。今天是{today}。"
+        f"请生成{num_topics}个当前国内外最热门的具身智能/人形机器人话题，"
+        "涵盖技术突破、产业动态、政策法规、投融资、应用落地等多个维度。"
+        "每个话题要具体、有新闻价值，带有具体的公司名或技术名。"
+        '严格按JSON数组格式输出，每个元素包含 "title" 和 "summary" 字段，不要有其他内容。'
+    )
+    try:
+        rsp = Generation.call(
+            model="qwen-turbo",
+            api_key=api_key,
+            messages=[{"role": "user", "content": prompt}],
+            result_format="message",
+        )
+    except Exception as e:
+        print(f"LLM generation failed: {e}", file=sys.stderr)
+        return []
+
+    if rsp.status_code != 200:
+        print(f"LLM API error: {getattr(rsp, 'message', rsp)}", file=sys.stderr)
+        return []
+
+    content = rsp.output.choices[0].message.content.strip()
+    if content.startswith("```"):
+        content = re.sub(r"^```(?:json)?\s*", "", content)
+        content = re.sub(r"\s*```$", "", content)
+
+    try:
+        topics = json.loads(content)
+    except json.JSONDecodeError:
+        print(f"LLM JSON parse error: {content[:200]}", file=sys.stderr)
+        return []
+
+    items = []
+    for t in topics:
+        title = t.get("title", "")
+        summary = t.get("summary", "")
+        if not title:
+            continue
+        items.append({
+            "title": title[:200],
+            "summary": (summary or title)[:300],
+            "source": "AI分析 (通义千问)",
+            "url": "",
+            "image_urls": [],
+            "video_urls": [],
+            "published_at": datetime.now(timezone.utc).isoformat(),
+        })
+
+    return items
+
+
 def main():
     script_path = Path(__file__).resolve()
     # scripts/ -> embodied-ai-research/ -> skills/ -> .cursor/ -> project_root
@@ -124,8 +254,28 @@ def main():
     for src in config.get("sources", []):
         if not src.get("enabled", True):
             continue
-        url = src["url"]
+        source_type = src.get("type", "web")
+        url = src.get("url", "")
         name = src.get("name", "Unknown")
+
+        if source_type == "youtube":
+            queries = src.get("queries", keywords[:3])
+            for q in queries:
+                print(f"  YouTube search: {q}", file=sys.stderr)
+                yt_items = extract_youtube(q, source_name=name,
+                                           max_results=src.get("max_results", 8))
+                all_items.extend(yt_items)
+            continue
+
+        if source_type == "llm":
+            api_key = os.environ.get("DASHSCOPE_API_KEY")
+            if not api_key:
+                print("LLM source skipped: DASHSCOPE_API_KEY not set", file=sys.stderr)
+                continue
+            print(f"  LLM generating topics...", file=sys.stderr)
+            llm_items = generate_llm_topics(api_key, num_topics=src.get("num_topics", 5))
+            all_items.extend(llm_items)
+            continue
 
         html = fetch_url(url)
         if not html:
@@ -141,9 +291,32 @@ def main():
             if any(kw.lower() in title_lower for kw in keywords):
                 all_items.append(item)
 
+    seen_titles = set()
+    by_source: dict[str, list[dict]] = {}
+    for item in all_items:
+        key = item["title"][:50].lower()
+        if key in seen_titles:
+            continue
+        seen_titles.add(key)
+        src_key = item["source"].split(" | ")[0] if " | " in item["source"] else item["source"]
+        by_source.setdefault(src_key, []).append(item)
+
+    balanced: list[dict] = []
+    max_items = 20
+    round_idx = 0
+    while len(balanced) < max_items:
+        added = False
+        for src_items in by_source.values():
+            if round_idx < len(src_items) and len(balanced) < max_items:
+                balanced.append(src_items[round_idx])
+                added = True
+        if not added:
+            break
+        round_idx += 1
+
     result = {
         "scraped_at": datetime.now(timezone.utc).isoformat(),
-        "items": all_items[:20],
+        "items": balanced,
     }
 
     output_dir.mkdir(parents=True, exist_ok=True)
