@@ -118,27 +118,45 @@ def generate_tts(text: str, output_path: str) -> bool:
         return False
 
 
-def generate_narration_text(title: str, summary: str, source: str) -> str:
-    """生成配音文稿。"""
+def generate_narration_text(item: dict) -> str:
+    """生成配音文稿。论文类条目优先使用提炼的方法解说，否则改写新闻标题。"""
+    title = item.get("title", "")
+    summary = item.get("summary", "")
+    method = item.get("method_summary", "")
+
+    if method:
+        return method
+
     api_key = os.environ.get("DASHSCOPE_API_KEY")
     if not api_key:
         return f"{title}。{summary}" if summary != title else title
+
+    is_paper = "论文" in title or "HF论文" in title or item.get("paper_url")
+    if is_paper and item.get("paper_abstract"):
+        prompt = (
+            f"你是AI论文视频解说员。将以下论文内容改写为30-50字的短视频配音文案，"
+            f"用中文通俗地解释核心方法和创新点：\n"
+            f"标题：{title}\n摘要：{item['paper_abstract'][:300]}"
+        )
+    else:
+        prompt = (
+            f"你是短视频配音文案写手。将以下新闻改写为15-25字的口播文案，"
+            f"语气自然、通俗易懂、适合短视频配音，不要加标点以外的符号：\n"
+            f"标题：{title}\n摘要：{summary[:100]}"
+        )
 
     try:
         from dashscope import Generation
         rsp = Generation.call(
             model="qwen-turbo", api_key=api_key,
-            messages=[{"role": "user", "content":
-                       f"你是短视频配音文案写手。将以下新闻改写为15-25字的口播文案，"
-                       f"语气自然、通俗易懂、适合短视频配音，不要加标点以外的符号：\n"
-                       f"标题：{title}\n摘要：{summary[:100]}"}],
+            messages=[{"role": "user", "content": prompt}],
             result_format="message",
         )
         if rsp.status_code == 200:
             return rsp.output.choices[0].message.content.strip()
     except Exception:
         pass
-    return f"{title}。{summary[:60]}" if summary and summary != title else title
+    return method or (f"{title}。{summary[:60]}" if summary and summary != title else title)
 
 
 # ── 3. 合成单条新闻视频（实拍 + 字幕 + 配音） ──────────────────
@@ -284,7 +302,7 @@ def build_realvideo(items: list[dict], output: str, workdir: str) -> bool:
 
         # Step B: 生成配音文稿 + TTS
         print(f"  [B] 生成配音...")
-        narration = generate_narration_text(title, summary, source)
+        narration = generate_narration_text(item)
         print(f"      文稿: {narration[:50]}...")
         audio_path = str(wd / f"audio_{idx}.mp3")
         if not generate_tts(narration, audio_path):

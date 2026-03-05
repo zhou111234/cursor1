@@ -231,11 +231,53 @@ def generate_llm_topics(api_key: str, num_topics: int = 5) -> list[dict]:
     return items
 
 
-def fetch_huggingface(max_models: int = 5, max_papers: int = 5) -> list[dict]:
-    """从 Hugging Face 获取热门 SOTA 模型和最新论文。"""
-    items = []
+def _fetch_arxiv_abstract(paper_id: str) -> str:
+    """通过 arXiv API 获取论文完整摘要。"""
+    try:
+        from xml.etree import ElementTree as ET
+        r = requests.get(
+            "http://export.arxiv.org/api/query",
+            params={"id_list": paper_id, "max_results": "1"},
+            timeout=10,
+        )
+        r.raise_for_status()
+        root = ET.fromstring(r.text)
+        ns = {"atom": "http://www.w3.org/2005/Atom"}
+        for entry in root.findall("atom:entry", ns):
+            summary_el = entry.find("atom:summary", ns)
+            if summary_el is not None and summary_el.text:
+                return summary_el.text.strip()
+    except Exception:
+        pass
+    return ""
 
-    # 1) Trending models
+
+def _extract_paper_method(title: str, abstract: str, api_key: str) -> str:
+    """用 LLM 从论文摘要中提炼核心实现方法，生成中文视频解说词。"""
+    try:
+        from dashscope import Generation
+        rsp = Generation.call(
+            model="qwen-turbo", api_key=api_key,
+            messages=[{"role": "user", "content":
+                       f"你是AI论文解读专家。以下是一篇SOTA模型论文的标题和摘要，"
+                       f"请用中文提炼其核心实现方法，写成50-80字的短视频解说词，"
+                       f"要通俗易懂、突出创新点和技术亮点，适合科技短视频配音。\n\n"
+                       f"标题: {title}\n摘要: {abstract[:800]}"}],
+            result_format="message",
+        )
+        if rsp.status_code == 200:
+            return rsp.output.choices[0].message.content.strip()
+    except Exception:
+        pass
+    return ""
+
+
+def fetch_huggingface(max_models: int = 5, max_papers: int = 5) -> list[dict]:
+    """从 HuggingFace 获取 SOTA 模型（含关联论文提炼）和最新论文。"""
+    items = []
+    api_key = os.environ.get("DASHSCOPE_API_KEY", "")
+
+    # 1) Trending models — 查找关联论文并提炼方法
     try:
         r = requests.get(
             "https://huggingface.co/api/models",
@@ -252,13 +294,33 @@ def fetch_huggingface(max_models: int = 5, max_papers: int = 5) -> list[dict]:
             downloads = m.get("downloads", 0)
             likes = m.get("likes", 0)
             task = m.get("pipeline_tag", "")
-            dl_str = f"{downloads/1000:.0f}K" if downloads >= 1000 else str(downloads)
-            summary = f"🔥 热门模型 | 任务: {task} | 下载: {dl_str} | 点赞: {likes}"
+            dl_str = f"{downloads / 1000:.0f}K" if downloads >= 1000 else str(downloads)
+
+            arxiv_tags = [t for t in m.get("tags", []) if t.startswith("arxiv:")]
+            paper_id = arxiv_tags[0].replace("arxiv:", "") if arxiv_tags else ""
+            paper_abstract = ""
+            method_summary = ""
+
+            if paper_id:
+                paper_abstract = _fetch_arxiv_abstract(paper_id)
+            if paper_abstract and api_key:
+                print(f"    提炼论文方法: {model_id} ({paper_id})...", file=sys.stderr)
+                method_summary = _extract_paper_method(model_id, paper_abstract, api_key)
+
+            summary_parts = [f"SOTA模型 | 任务: {task} | 下载: {dl_str} | 点赞: {likes}"]
+            if method_summary:
+                summary_parts.append(f"论文方法: {method_summary}")
+            elif paper_abstract:
+                summary_parts.append(f"论文摘要: {paper_abstract[:150]}")
+
             items.append({
-                "title": f"HuggingFace 热门模型: {model_id}",
-                "summary": summary,
+                "title": f"HuggingFace SOTA: {model_id}",
+                "summary": " | ".join(summary_parts),
                 "source": f"HuggingFace | {author}",
                 "url": f"https://huggingface.co/{model_id}",
+                "paper_url": f"https://arxiv.org/abs/{paper_id}" if paper_id else "",
+                "paper_abstract": paper_abstract[:500],
+                "method_summary": method_summary,
                 "image_urls": [],
                 "video_urls": [],
                 "published_at": datetime.now(timezone.utc).isoformat(),
@@ -266,7 +328,7 @@ def fetch_huggingface(max_models: int = 5, max_papers: int = 5) -> list[dict]:
     except Exception as e:
         print(f"HuggingFace models fetch failed: {e}", file=sys.stderr)
 
-    # 2) Daily papers
+    # 2) Daily papers — 获取完整摘要并提炼方法
     try:
         r = requests.get(
             "https://huggingface.co/api/daily_papers",
@@ -281,13 +343,25 @@ def fetch_huggingface(max_models: int = 5, max_papers: int = 5) -> list[dict]:
             if not title:
                 continue
             paper_id = paper.get("id", "")
-            summary = paper.get("summary", "")[:200]
-            upvotes = p.get("paper", {}).get("upvotes", 0)
+            hf_summary = paper.get("summary", "")
+
+            full_abstract = _fetch_arxiv_abstract(paper_id) if paper_id else ""
+            abstract = full_abstract or hf_summary
+            method_summary = ""
+            if abstract and api_key:
+                print(f"    提炼论文方法: {title[:30]}...", file=sys.stderr)
+                method_summary = _extract_paper_method(title, abstract, api_key)
+
+            display_summary = method_summary if method_summary else abstract[:200]
+
             items.append({
                 "title": f"HF论文: {title}",
-                "summary": summary if summary else title,
+                "summary": display_summary,
                 "source": "HuggingFace Papers",
                 "url": f"https://huggingface.co/papers/{paper_id}" if paper_id else "",
+                "paper_url": f"https://arxiv.org/abs/{paper_id}" if paper_id else "",
+                "paper_abstract": abstract[:500],
+                "method_summary": method_summary,
                 "image_urls": [],
                 "video_urls": [],
                 "published_at": datetime.now(timezone.utc).isoformat(),
