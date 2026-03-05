@@ -100,11 +100,13 @@ def generate_hook(output: str, title: str, channel: str = "@具身智能",
             f"x=(w-text_w)/2:y=(h)/2+100:"
             f"enable='gte(t,0.6)'[t3]"
         ),
+        f"color=c=0x000000@0.7:s={WIDTH}x70:d={duration}:r={FPS}[_hookbar]",
+        f"[t3][_hookbar]overlay=0:{HEIGHT-70}[t4]",
         (
-            f"[t3]drawtext={fa}:text='{escaped_channel}':"
-            f"fontsize=28:fontcolor=0x9e7cff:"
-            f"x=(w-text_w)/2:y={HEIGHT-120}:"
-            f"enable='gte(t,0.4)'[out]"
+            f"[t4]drawtext={fa}:text='2分钟看完今日具身智能大事 | {escaped_channel}':"
+            f"fontsize=24:fontcolor=white:"
+            f"x=(w-text_w)/2:y={HEIGHT-50}:"
+            f"enable='gte(t,0.5)'[out]"
         ),
     ]
 
@@ -135,15 +137,22 @@ def generate_news_card(
     e_source = _esc(source)
     e_num = _esc(num_char)
 
+    img_size = 440
+    img_x = (WIDTH - img_size) // 2
+    img_y = 170
+    border_w = 4
+
     if image_path and Path(image_path).exists():
         filter_parts = [
             _gradient_bg(duration),
+            f"color=c=0x00e5ff:s={img_size+border_w*2}x{img_size+border_w*2}:d={duration}:r={FPS}[_border]",
+            f"[_grad][_border]overlay={img_x-border_w}:{img_y-border_w}[_b0]",
             (
-                f"[1:v]scale=480:480:force_original_aspect_ratio=decrease,"
-                f"pad=480:480:(ow-iw)/2:(oh-ih)/2:color=0x00000000,"
+                f"[1:v]scale={img_size}:{img_size}:force_original_aspect_ratio=decrease,"
+                f"pad={img_size}:{img_size}:(ow-iw)/2:(oh-ih)/2:color=0x0a0a2a,"
                 f"format=rgba[_img]"
             ),
-            f"[_grad][_img]overlay=({WIDTH}-480)/2:180[b0]",
+            f"[_b0][_img]overlay={img_x}:{img_y}[b0]",
         ]
         input_args = ["-f", "lavfi", "-i", "nullsrc=s=1x1:d=0.01", "-i", image_path]
     else:
@@ -151,7 +160,7 @@ def generate_news_card(
         filter_parts.append(f"[_grad]null[b0]")
         input_args = ["-f", "lavfi", "-i", "nullsrc=s=1x1:d=0.01"]
 
-    y_title = 720 if image_path and Path(image_path).exists() else 350
+    y_title = img_y + img_size + 40 if image_path and Path(image_path).exists() else 350
 
     filter_parts.extend([
         (
@@ -175,18 +184,26 @@ def generate_news_card(
             f"x=(w-text_w)/2:y={y_title}:"
             f"enable='gte(t,0.2)'[n4]"
         ),
-        f"color=c=0x000000@0.45:s={WIDTH}x100:d={duration}:r={FPS}[_bot]",
-        f"[n4][_bot]overlay=0:{HEIGHT-100}[n5]",
+        f"color=c=0x000000@0.55:s={WIDTH}x120:d={duration}:r={FPS}[_bot]",
+        f"[n4][_bot]overlay=0:{HEIGHT-120}[n5]",
+        f"color=c=0x0088ff:s=200x40:d={duration}:r={FPS}[_tag]",
+        f"[n5][_tag]overlay=20:{HEIGHT-110}[n6]",
         (
-            f"[n5]drawtext={fa}:text='📍 {e_source}':"
-            f"fontsize=24:fontcolor=0xaaaaaa:"
-            f"x=30:y={HEIGHT-75}:"
-            f"enable='gte(t,0.3)'[n6]"
+            f"[n6]drawtext={fa}:text='具身智能快报':"
+            f"fontsize=22:fontcolor=white:"
+            f"x=35:y={HEIGHT-105}:"
+            f"enable='gte(t,0.2)'[n7]"
         ),
         (
-            f"[n6]drawtext={fa}:text='@具身智能':"
-            f"fontsize=22:fontcolor=0x9e7cff@0.7:"
-            f"x={WIDTH}-text_w-30:y={HEIGHT-75}:"
+            f"[n7]drawtext={fa}:text='{e_source}':"
+            f"fontsize=20:fontcolor=0xcccccc:"
+            f"x=240:y={HEIGHT-102}:"
+            f"enable='gte(t,0.3)'[n8]"
+        ),
+        (
+            f"[n8]drawtext={fa}:text='@具身智能':"
+            f"fontsize=20:fontcolor=0x00e5ff:"
+            f"x={WIDTH}-text_w-20:y={HEIGHT-60}:"
             f"enable='gte(t,0.3)'[out]"
         ),
     ])

@@ -53,8 +53,9 @@
 
 | 组件 | 用途 |
 |------|------|
-| `run_workflow.py` | 一键执行 抓取→生图→剪辑 |
+| `run_workflow.py` | 一键执行 抓取→报告→生图→剪辑 |
 | `scripts/check_env.py` | 环境就绪检查 |
+| `scripts/generate_report.py` | 调用通义千问生成今日行业报告（Markdown） |
 | `.cursor/skills/embodied-ai-research/scripts/scrape_sources.py` | 抓取具身智能新闻 |
 | `.cursor/skills/image-gen-blotato/scripts/generate_image.py` | AI 配图生成（支持降级到 Pillow 占位图） |
 | `.cursor/skills/video-processing/scripts/process_video.py` | FFmpeg 视频合成（底层操作） |
@@ -64,7 +65,9 @@
 
 - 使用 `python3` 而非 `python`，Cloud VM 上 `python` 可能不在 PATH 中。
 - `DASHSCOPE_API_KEY` 通过 Cursor Secrets 注入，`generate_image.py` 会自动读取环境变量调用通义万相 API。缺失时降级为 Pillow 纯色占位图，工作流仍可完成。
-- 新版工作流为每条新闻独立生成 AI 配图，3 条新闻约 60 秒完成。使用 `--legacy` 回退旧版单条模式。
+- 完整工作流：抓取(20条) → 报告(qwen-plus) → 配图(5张) → 视频(24s)，总耗时约 2.5 分钟。
+- 视频模板基于抖音"产品君"风格：紫蓝渐变、荧光边框、系列横幅、快节奏。使用 `--legacy` 回退旧版。
+- 内容源：网页抓取 + YouTube 搜索 + LLM 话题生成，config/sources.json 配置。
 - 视频模板使用 `WenQuanYi Micro Hei` 字体渲染中文，Cloud VM 已预装。
 - 部分抓取源（如 gasgoo.com）在云端可能因 SSL 证书问题失败，不影响整体抓取结果。
 - `outputs/` 目录下的文件为运行产物，不需要提交到仓库。
