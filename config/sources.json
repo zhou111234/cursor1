@@ -56,6 +56,14 @@
       "enabled": true
     },
     {
+      "id": "huggingface",
+      "name": "HuggingFace",
+      "type": "huggingface",
+      "max_models": 5,
+      "max_papers": 5,
+      "enabled": true
+    },
+    {
       "id": "llm-topics",
       "name": "AI热点分析",
       "type": "llm",

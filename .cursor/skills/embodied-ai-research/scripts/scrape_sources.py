@@ -231,6 +231,73 @@ def generate_llm_topics(api_key: str, num_topics: int = 5) -> list[dict]:
     return items
 
 
+def fetch_huggingface(max_models: int = 5, max_papers: int = 5) -> list[dict]:
+    """从 Hugging Face 获取热门 SOTA 模型和最新论文。"""
+    items = []
+
+    # 1) Trending models
+    try:
+        r = requests.get(
+            "https://huggingface.co/api/models",
+            params={"sort": "likes7d", "direction": "-1", "limit": max_models},
+            headers={"User-Agent": "embodied-ai-pipeline/1.0"},
+            timeout=10,
+        )
+        r.raise_for_status()
+        for m in r.json():
+            model_id = m.get("id", "")
+            if not model_id:
+                continue
+            author = model_id.split("/")[0] if "/" in model_id else ""
+            downloads = m.get("downloads", 0)
+            likes = m.get("likes", 0)
+            task = m.get("pipeline_tag", "")
+            dl_str = f"{downloads/1000:.0f}K" if downloads >= 1000 else str(downloads)
+            summary = f"🔥 热门模型 | 任务: {task} | 下载: {dl_str} | 点赞: {likes}"
+            items.append({
+                "title": f"HuggingFace 热门模型: {model_id}",
+                "summary": summary,
+                "source": f"HuggingFace | {author}",
+                "url": f"https://huggingface.co/{model_id}",
+                "image_urls": [],
+                "video_urls": [],
+                "published_at": datetime.now(timezone.utc).isoformat(),
+            })
+    except Exception as e:
+        print(f"HuggingFace models fetch failed: {e}", file=sys.stderr)
+
+    # 2) Daily papers
+    try:
+        r = requests.get(
+            "https://huggingface.co/api/daily_papers",
+            params={"limit": max_papers},
+            headers={"User-Agent": "embodied-ai-pipeline/1.0"},
+            timeout=10,
+        )
+        r.raise_for_status()
+        for p in r.json():
+            paper = p.get("paper", {})
+            title = paper.get("title", "")
+            if not title:
+                continue
+            paper_id = paper.get("id", "")
+            summary = paper.get("summary", "")[:200]
+            upvotes = p.get("paper", {}).get("upvotes", 0)
+            items.append({
+                "title": f"HF论文: {title}",
+                "summary": summary if summary else title,
+                "source": "HuggingFace Papers",
+                "url": f"https://huggingface.co/papers/{paper_id}" if paper_id else "",
+                "image_urls": [],
+                "video_urls": [],
+                "published_at": datetime.now(timezone.utc).isoformat(),
+            })
+    except Exception as e:
+        print(f"HuggingFace papers fetch failed: {e}", file=sys.stderr)
+
+    return items
+
+
 def main():
     script_path = Path(__file__).resolve()
     # scripts/ -> embodied-ai-research/ -> skills/ -> .cursor/ -> project_root
@@ -257,6 +324,15 @@ def main():
         source_type = src.get("type", "web")
         url = src.get("url", "")
         name = src.get("name", "Unknown")
+
+        if source_type == "huggingface":
+            print(f"  HuggingFace: 获取热门模型和论文...", file=sys.stderr)
+            hf_items = fetch_huggingface(
+                max_models=src.get("max_models", 5),
+                max_papers=src.get("max_papers", 5),
+            )
+            all_items.extend(hf_items)
+            continue
 
         if source_type == "youtube":
             queries = src.get("queries", keywords[:3])
