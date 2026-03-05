@@ -122,8 +122,24 @@ def stage_legacy(items: list[dict], drafts: Path) -> Path | None:
     return None
 
 
+def stage_realvideo(items: list[dict], drafts: Path) -> Path | None:
+    """实拍素材+配音模式。"""
+    print("\n=== 阶段2: 实拍素材+配音视频生成 ===")
+    items_file = drafts / "realvideo_items.json"
+    with open(items_file, "w", encoding="utf-8") as f:
+        json.dump(items, f, ensure_ascii=False, indent=2)
+
+    out_video = drafts / f"realvideo_{datetime.now().strftime('%H%M')}.mp4"
+    if run([sys.executable, "scripts/realvideo_pipeline.py",
+            str(items_file), "--output", str(out_video)]):
+        return out_video
+    return None
+
+
 def main():
     legacy_mode = "--legacy" in sys.argv
+    realvideo_mode = "--real" in sys.argv
+
     all_items, scraped_file = stage_scrape()
     if not all_items:
         return 1
@@ -136,7 +152,9 @@ def main():
     drafts = PROJECT_ROOT / "outputs" / "drafts"
     drafts.mkdir(parents=True, exist_ok=True)
 
-    if legacy_mode:
+    if realvideo_mode:
+        out = stage_realvideo(video_items, drafts)
+    elif legacy_mode:
         out = stage_legacy(video_items, drafts)
     else:
         img_dir = stage_generate_images(video_items, drafts)
