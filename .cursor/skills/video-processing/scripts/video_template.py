@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-视频模板引擎 v2：仿抖音 AI 测评类短视频风格。
-特点：渐变背景、大字钩子、圆形编号、彩色关键词、快节奏、白闪转场。
-结构：钩子片头(2s) → 多条新闻(每条4s) → 总结片尾(3s)
+NEXUS 情报终端 — 视频模板引擎 v4
+风格：赛博朋克 HUD + 极简数据面板 + 扫描线 + 打字机效果
+结构：系统启动(2s) → 情报卡片×N(每条6s) → 终端关闭(2s)
 """
 
 import json
@@ -18,268 +18,251 @@ from typing import Optional
 WIDTH, HEIGHT = 720, 1280
 FPS = 25
 FONT = "/usr/share/fonts/truetype/wqy/wqy-microhei.ttc"
-FONT_FALLBACK = "WenQuanYi Micro Hei"
+
+# 颜色体系
+C_BG = "0x06080f"        # 深空黑
+C_CYAN = "0x00e5ff"      # HUD 青色
+C_ORANGE = "0xff6d00"    # 警报橙
+C_DIM = "0x1a2a3a"       # 暗灰蓝
+C_TEXT = "0xe0e8f0"      # 亮白灰
+C_MUTED = "0x607080"     # 暗文字
 
 
-def _run_ff(args: list[str], label: str = "") -> bool:
+def _ff(args: list[str], label: str = "") -> bool:
     cmd = ["ffmpeg", "-y"] + args
     try:
         subprocess.run(cmd, check=True, capture_output=True)
         return True
     except subprocess.CalledProcessError as e:
-        print(f"FFmpeg error ({label}): {e.stderr.decode()[:500]}", file=sys.stderr)
+        print(f"  FFmpeg error ({label}): {e.stderr.decode()[-600:]}", file=sys.stderr)
         return False
 
 
 def _fa() -> str:
-    if Path(FONT).exists():
-        return f"fontfile={FONT}"
-    return f"font={FONT_FALLBACK}"
+    return f"fontfile={FONT}" if Path(FONT).exists() else "font=WenQuanYi Micro Hei"
 
 
-def _esc(text: str) -> str:
-    return text.replace("\\", "\\\\").replace(":", "\\:").replace("'", "\\'").replace('"', '\\"')
+def _esc(t: str) -> str:
+    return t.replace("\\", "\\\\").replace(":", "\\:").replace("'", "\\'").replace('"', '\\"')
 
 
-def _wrap(text: str, max_chars: int = 14) -> str:
+def _wrap(t: str, n: int = 16) -> str:
     lines = []
-    while len(text) > max_chars:
-        lines.append(text[:max_chars])
-        text = text[max_chars:]
-    if text:
-        lines.append(text)
+    while len(t) > n:
+        lines.append(t[:n])
+        t = t[n:]
+    if t:
+        lines.append(t)
     return "\n".join(lines)
 
 
-def _gradient_bg(duration: float) -> str:
-    """紫蓝渐变背景 (通过两色条叠加模拟)。"""
+def _hud_base(dur: float) -> str:
+    """深空背景 + 顶部状态栏 + 底部数据条。"""
+    fa = _fa()
+    date_str = _esc(datetime.now().strftime("%Y.%m.%d"))
     return (
-        f"color=c=0x1a0533:s={WIDTH}x{HEIGHT}:d={duration}:r={FPS}[_bg0];"
-        f"color=c=0x0a2a5c:s={WIDTH}x{HEIGHT//2}:d={duration}:r={FPS}[_bg1];"
-        f"[_bg0][_bg1]overlay=0:{HEIGHT//2}[_bgbase];"
-        f"color=c=0x6c3baa@0.15:s={WIDTH}x{HEIGHT}:d={duration}:r={FPS}[_glow];"
-        f"[_bgbase][_glow]overlay=0:0[_grad]"
+        f"color=c={C_BG}:s={WIDTH}x{HEIGHT}:d={dur}:r={FPS}[_bg0];"
+        f"color=c={C_DIM}:s={WIDTH}x52:d={dur}:r={FPS}[_topbar];"
+        f"[_bg0][_topbar]overlay=0:0[_b1];"
+        f"color=c={C_CYAN}:s={WIDTH}x2:d={dur}:r={FPS}[_topline];"
+        f"[_b1][_topline]overlay=0:52[_b2];"
+        f"color=c={C_DIM}:s={WIDTH}x44:d={dur}:r={FPS}[_botbar];"
+        f"[_b2][_botbar]overlay=0:{HEIGHT - 44}[_b3];"
+        f"color=c={C_CYAN}:s={WIDTH}x2:d={dur}:r={FPS}[_botline];"
+        f"[_b3][_botline]overlay=0:{HEIGHT - 44}[_b4];"
+        f"[_b4]drawtext={fa}:text='NEXUS':fontsize=20:fontcolor={C_CYAN}:x=16:y=16[_b5];"
+        f"[_b5]drawtext={fa}:text='{date_str}':fontsize=16:fontcolor={C_MUTED}:x={WIDTH}-text_w-16:y=20[_b6];"
+        f"[_b6]drawtext={fa}:text='SIGNAL ACTIVE':fontsize=14:fontcolor={C_CYAN}:"
+        f"x=16:y={HEIGHT - 34}[_base]"
     )
 
 
-def generate_hook(output: str, title: str, channel: str = "@具身智能",
-                  duration: float = 2.5) -> bool:
-    """钩子片头：超大黄色标题 + 日期标签 + 频道名。"""
+def generate_boot(output: str, duration: float = 2.5) -> bool:
+    """系统启动画面。"""
     fa = _fa()
-    date_tag = datetime.now().strftime("%m.%d")
-    hook_title = _wrap(title, max_chars=10)
-    escaped_title = _esc(hook_title)
-    escaped_channel = _esc(channel)
-
     filters = [
-        _gradient_bg(duration),
-        f"color=c=0xffc107:s=180x6:d={duration}:r={FPS}[_bar]",
-        f"[_grad][_bar]overlay=(w-180)/2:160[b1]",
+        _hud_base(duration),
+        # 中央大 LOGO
         (
-            f"[b1]drawtext={fa}:text='🤖 具身智能快讯':"
-            f"fontsize=30:fontcolor=0xffc107:"
-            f"x=(w-text_w)/2:y=110:"
-            f"enable='gte(t,0.1)'[t0]"
+            f"[_base]drawtext={fa}:text='N E X U S':"
+            f"fontsize=64:fontcolor={C_CYAN}:"
+            f"x=(w-text_w)/2:y=(h-text_h)/2-100:"
+            f"enable='gte(t,0.3)'[t1]"
         ),
         (
-            f"[t0]drawtext={fa}:text='{date_tag}':"
-            f"fontsize=26:fontcolor=white:"
-            f"x=(w-text_w)/2:y=180:"
-            f"enable='gte(t,0.2)'[t1]"
+            f"[t1]drawtext={fa}:text='EMBODIED AI INTELLIGENCE':"
+            f"fontsize=20:fontcolor={C_MUTED}:"
+            f"x=(w-text_w)/2:y=(h)/2-20:"
+            f"enable='gte(t,0.6)'[t2]"
         ),
         (
-            f"[t1]drawtext={fa}:text='{escaped_title}':"
-            f"fontsize=60:fontcolor=0xffc107:"
-            f"line_spacing=16:"
-            f"x=(w-text_w)/2:y=(h-text_h)/2-80:"
-            f"enable='gte(t,0.3)'[t2]"
+            f"[t2]drawtext={fa}:text='SYSTEM ONLINE':"
+            f"fontsize=22:fontcolor={C_ORANGE}:"
+            f"x=(w-text_w)/2:y=(h)/2+60:"
+            f"enable='gte(t,1.2)'[t3]"
         ),
         (
-            f"[t2]drawtext={fa}:text='👇 今日必看 👇':"
-            f"fontsize=32:fontcolor=white:"
-            f"x=(w-text_w)/2:y=(h)/2+100:"
-            f"enable='gte(t,0.6)'[t3]"
-        ),
-        f"color=c=0x000000@0.7:s={WIDTH}x70:d={duration}:r={FPS}[_hookbar]",
-        f"[t3][_hookbar]overlay=0:{HEIGHT-70}[t4]",
-        (
-            f"[t4]drawtext={fa}:text='2分钟看完今日具身智能大事 | {escaped_channel}':"
-            f"fontsize=24:fontcolor=white:"
-            f"x=(w-text_w)/2:y={HEIGHT-50}:"
-            f"enable='gte(t,0.5)'[out]"
+            f"[t3]drawtext={fa}:text='正在加载今日情报...':"
+            f"fontsize=18:fontcolor={C_TEXT}@0.5:"
+            f"x=(w-text_w)/2:y=(h)/2+120:"
+            f"enable='gte(t,1.8)'[out]"
         ),
     ]
-
-    args = [
+    return _ff([
         "-f", "lavfi", "-i", "nullsrc=s=1x1:d=0.01",
         "-filter_complex", ";".join(filters),
         "-map", "[out]", "-t", str(duration),
-        "-c:v", "libx264", "-pix_fmt", "yuv420p", "-r", str(FPS),
-        output,
-    ]
-    return _run_ff(args, "hook")
+        "-c:v", "libx264", "-pix_fmt", "yuv420p", "-r", str(FPS), output,
+    ], "boot")
 
 
-def generate_news_card(
-    output: str,
-    index: int,
-    title: str,
-    source: str,
-    image_path: Optional[str] = None,
-    duration: float = 4.0,
+def generate_intel_card(
+    output: str, index: int, title: str, source: str,
+    image_path: Optional[str] = None, duration: float = 6.0,
 ) -> bool:
-    """新闻卡片：渐变背景 + 圆形编号 + 配图 + 大标题 + 来源。"""
+    """情报卡片：HUD 数据面板 + 配图/实拍 + 标题 + 来源。"""
     fa = _fa()
-    circle_nums = ["❶", "❷", "❸", "❹", "❺", "❻", "❼", "❽", "❾", "❿"]
-    num_char = circle_nums[index - 1] if index <= len(circle_nums) else f"#{index}"
-    wrapped = _wrap(title, max_chars=14)
+    wrapped = _wrap(title, n=16)
     e_title = _esc(wrapped)
-    e_source = _esc(source)
-    e_num = _esc(num_char)
+    e_src = _esc(source[:30])
+    idx_str = f"INTEL-{index:03d}"
+    e_idx = _esc(idx_str)
 
-    img_size = 440
-    img_x = (WIDTH - img_size) // 2
-    img_y = 170
-    border_w = 4
+    panel_y = 56
+    panel_h = HEIGHT - 56 - 48
+    img_area_h = 400
+    text_y = panel_y + img_area_h + 30
 
     if image_path and Path(image_path).exists():
-        filter_parts = [
-            _gradient_bg(duration),
-            f"color=c=0x00e5ff:s={img_size+border_w*2}x{img_size+border_w*2}:d={duration}:r={FPS}[_border]",
-            f"[_grad][_border]overlay={img_x-border_w}:{img_y-border_w}[_b0]",
-            (
-                f"[1:v]scale={img_size}:{img_size}:force_original_aspect_ratio=decrease,"
-                f"pad={img_size}:{img_size}:(ow-iw)/2:(oh-ih)/2:color=0x0a0a2a,"
-                f"format=rgba[_img]"
-            ),
-            f"[_b0][_img]overlay={img_x}:{img_y}[b0]",
-        ]
         input_args = ["-f", "lavfi", "-i", "nullsrc=s=1x1:d=0.01", "-i", image_path]
+        img_filters = [
+            _hud_base(duration),
+            # 左侧青色竖线
+            f"color=c={C_CYAN}:s=3x{panel_h}:d={duration}:r={FPS}[_vline]",
+            f"[_base][_vline]overlay=24:{panel_y}[_p1]",
+            # 图片区域
+            (
+                f"[1:v]scale=660:{img_area_h}:force_original_aspect_ratio=decrease,"
+                f"pad=660:{img_area_h}:(ow-iw)/2:(oh-ih)/2:color={C_BG}[_img]"
+            ),
+            f"color=c={C_CYAN}:s=664x{img_area_h + 4}:d={duration}:r={FPS}[_imgborder]",
+            f"[_p1][_imgborder]overlay=28:{panel_y+6}[_p2]",
+            f"[_p2][_img]overlay=30:{panel_y+8}[_p3]",
+        ]
     else:
-        filter_parts = [_gradient_bg(duration)]
-        filter_parts.append(f"[_grad]null[b0]")
         input_args = ["-f", "lavfi", "-i", "nullsrc=s=1x1:d=0.01"]
+        text_y = panel_y + 80
+        img_filters = [
+            _hud_base(duration),
+            f"color=c={C_CYAN}:s=3x{panel_h}:d={duration}:r={FPS}[_vline]",
+            f"[_base][_vline]overlay=24:{panel_y}[_p3]",
+        ]
 
-    y_title = img_y + img_size + 40 if image_path and Path(image_path).exists() else 350
-
-    filter_parts.extend([
+    text_filters = [
+        # 索引编号
         (
-            f"[b0]drawtext={fa}:text='{e_num}':"
-            f"fontsize=72:fontcolor=0xffc107:"
-            f"x=40:y=60:"
-            f"enable='gte(t,0.1)'[n1]"
+            f"[_p3]drawtext={fa}:text='{e_idx}':"
+            f"fontsize=18:fontcolor={C_ORANGE}:"
+            f"x=40:y={panel_y+10}:"
+            f"enable='gte(t,0.15)'[_t1]"
         ),
-        f"color=c=0xffc107:s=4x50:d={duration}:r={FPS}[_vbar]",
-        f"[n1][_vbar]overlay=120:70[n2]",
+        # 主标题
         (
-            f"[n2]drawtext={fa}:text='具身智能':"
-            f"fontsize=24:fontcolor=0xbb86fc:"
-            f"x=140:y=70:"
-            f"enable='gte(t,0.1)'[n3]"
-        ),
-        (
-            f"[n3]drawtext={fa}:text='{e_title}':"
-            f"fontsize=44:fontcolor=white:"
+            f"[_t1]drawtext={fa}:text='{e_title}':"
+            f"fontsize=38:fontcolor={C_TEXT}:"
             f"line_spacing=10:"
-            f"x=(w-text_w)/2:y={y_title}:"
-            f"enable='gte(t,0.2)'[n4]"
+            f"x=40:y={text_y}:"
+            f"enable='gte(t,0.4)'[_t2]"
         ),
-        f"color=c=0x000000@0.55:s={WIDTH}x120:d={duration}:r={FPS}[_bot]",
-        f"[n4][_bot]overlay=0:{HEIGHT-120}[n5]",
-        f"color=c=0x0088ff:s=200x40:d={duration}:r={FPS}[_tag]",
-        f"[n5][_tag]overlay=20:{HEIGHT-110}[n6]",
+        # 分隔线
+        f"color=c={C_CYAN}:s=200x2:d={duration}:r={FPS}[_sep]",
+        f"[_t2][_sep]overlay=40:{text_y + 200}[_t3]",
+        # 来源标签
         (
-            f"[n6]drawtext={fa}:text='具身智能快报':"
-            f"fontsize=22:fontcolor=white:"
-            f"x=35:y={HEIGHT-105}:"
-            f"enable='gte(t,0.2)'[n7]"
-        ),
-        (
-            f"[n7]drawtext={fa}:text='{e_source}':"
-            f"fontsize=20:fontcolor=0xcccccc:"
-            f"x=240:y={HEIGHT-102}:"
-            f"enable='gte(t,0.3)'[n8]"
+            f"[_t3]drawtext={fa}:text='SOURCE':"
+            f"fontsize=14:fontcolor={C_CYAN}:"
+            f"x=40:y={text_y+220}:"
+            f"enable='gte(t,0.6)'[_t4]"
         ),
         (
-            f"[n8]drawtext={fa}:text='@具身智能':"
-            f"fontsize=20:fontcolor=0x00e5ff:"
-            f"x={WIDTH}-text_w-20:y={HEIGHT-60}:"
+            f"[_t4]drawtext={fa}:text='{e_src}':"
+            f"fontsize=18:fontcolor={C_MUTED}:"
+            f"x=150:y={text_y+218}:"
+            f"enable='gte(t,0.6)'[_t5]"
+        ),
+        # 底部品牌
+        (
+            f"[_t5]drawtext={fa}:text='@具身智能 NEXUS':"
+            f"fontsize=14:fontcolor={C_CYAN}@0.5:"
+            f"x={WIDTH}-text_w-16:y={HEIGHT-34}:"
             f"enable='gte(t,0.3)'[out]"
         ),
-    ])
-
-    args = input_args + [
-        "-filter_complex", ";".join(filter_parts),
-        "-map", "[out]", "-t", str(duration),
-        "-c:v", "libx264", "-pix_fmt", "yuv420p", "-r", str(FPS),
-        output,
     ]
-    return _run_ff(args, f"card_{index}")
+
+    all_filters = img_filters + text_filters
+    return _ff(input_args + [
+        "-filter_complex", ";".join(all_filters),
+        "-map", "[out]", "-t", str(duration),
+        "-c:v", "libx264", "-pix_fmt", "yuv420p", "-r", str(FPS), output,
+    ], f"intel_{index}")
 
 
-def generate_summary(output: str, items: list[dict],
-                     channel: str = "@具身智能", duration: float = 3.0) -> bool:
-    """总结片尾：要点回顾 + 关注引导。"""
+def generate_shutdown(output: str, items: list[dict], duration: float = 3.0) -> bool:
+    """终端关闭 / 总结画面。"""
     fa = _fa()
-    escaped_channel = _esc(channel)
 
     summary_lines = ""
-    circle_nums = ["❶", "❷", "❸", "❹", "❺"]
     for i, item in enumerate(items[:5]):
-        short = item.get("title", "")[:18]
-        num = circle_nums[i] if i < len(circle_nums) else f"#{i+1}"
-        summary_lines += f"{num} {_esc(short)}\\n"
+        short = _esc(item.get("title", "")[:20])
+        summary_lines += f"▸ {short}\\n"
 
     filters = [
-        _gradient_bg(duration),
+        _hud_base(duration),
         (
-            f"[_grad]drawtext={fa}:text='📌 今日要点回顾':"
-            f"fontsize=40:fontcolor=0xffc107:"
+            f"[_base]drawtext={fa}:text='TODAY BRIEFING':"
+            f"fontsize=28:fontcolor={C_ORANGE}:"
             f"x=(w-text_w)/2:y=100:"
             f"enable='gte(t,0.2)'[s1]"
         ),
         (
             f"[s1]drawtext={fa}:text='{summary_lines}':"
-            f"fontsize=28:fontcolor=white:"
-            f"line_spacing=18:"
-            f"x=60:y=220:"
+            f"fontsize=22:fontcolor={C_TEXT}:"
+            f"line_spacing=16:"
+            f"x=60:y=200:"
             f"enable='gte(t,0.4)'[s2]"
         ),
-        f"color=c=0xffc107:s={WIDTH-100}x3:d={duration}:r={FPS}[_divider]",
-        f"[s2][_divider]overlay=50:{HEIGHT-350}[s3]",
+        f"color=c={C_CYAN}:s={WIDTH - 100}x2:d={duration}:r={FPS}[_div]",
+        f"[s2][_div]overlay=50:{HEIGHT-380}[s3]",
         (
-            f"[s3]drawtext={fa}:text='关注 {escaped_channel}':"
-            f"fontsize=48:fontcolor=0xffc107:"
-            f"x=(w-text_w)/2:y={HEIGHT-300}:"
-            f"enable='gte(t,0.6)'[s4]"
+            f"[s3]drawtext={fa}:text='关注 @具身智能':"
+            f"fontsize=36:fontcolor={C_CYAN}:"
+            f"x=(w-text_w)/2:y={HEIGHT-340}:"
+            f"enable='gte(t,0.8)'[s4]"
         ),
         (
-            f"[s4]drawtext={fa}:text='每日更新 · 具身智能 · 机器人资讯':"
-            f"fontsize=24:fontcolor=0xbb86fc:"
-            f"x=(w-text_w)/2:y={HEIGHT-230}:"
-            f"enable='gte(t,0.8)'[s5]"
+            f"[s4]drawtext={fa}:text='NEXUS 每日情报 关注 点赞 转发':"
+            f"fontsize=18:fontcolor={C_MUTED}:"
+            f"x=(w-text_w)/2:y={HEIGHT-280}:"
+            f"enable='gte(t,1.2)'[s5]"
         ),
         (
-            f"[s5]drawtext={fa}:text='❤ 点赞   ⭐ 收藏   ↗ 转发':"
-            f"fontsize=28:fontcolor=white:"
-            f"x=(w-text_w)/2:y={HEIGHT-160}:"
-            f"enable='gte(t,1.0)'[out]"
+            f"[s5]drawtext={fa}:text='SESSION ENDED':"
+            f"fontsize=20:fontcolor={C_ORANGE}@0.6:"
+            f"x=(w-text_w)/2:y={HEIGHT-200}:"
+            f"enable='gte(t,2.0)'[out]"
         ),
     ]
-
-    args = [
+    return _ff([
         "-f", "lavfi", "-i", "nullsrc=s=1x1:d=0.01",
         "-filter_complex", ";".join(filters),
         "-map", "[out]", "-t", str(duration),
-        "-c:v", "libx264", "-pix_fmt", "yuv420p", "-r", str(FPS),
-        output,
-    ]
-    return _run_ff(args, "summary")
+        "-c:v", "libx264", "-pix_fmt", "yuv420p", "-r", str(FPS), output,
+    ], "shutdown")
 
 
 def compose_with_transitions(
     clips: list[str], output: str,
-    transition: str = "fade", trans_duration: float = 0.3,
+    transition: str = "fadeblack", trans_duration: float = 0.4,
 ) -> bool:
     if not clips:
         return False
@@ -292,8 +275,7 @@ def compose_with_transitions(
         probe = subprocess.run(
             ["ffprobe", "-v", "quiet", "-show_entries", "format=duration",
              "-of", "default=noprint_wrappers=1:nokey=1", c],
-            capture_output=True, text=True,
-        )
+            capture_output=True, text=True)
         durations.append(float(probe.stdout.strip()))
 
     inputs = []
@@ -302,97 +284,76 @@ def compose_with_transitions(
 
     filter_parts = []
     offsets = []
-    cumulative = 0.0
+    cum = 0.0
     for i, d in enumerate(durations):
-        if i == 0:
-            cumulative = d - trans_duration
-        else:
-            cumulative += d - trans_duration
-        offsets.append(cumulative)
+        cum = (d - trans_duration) if i == 0 else cum + d - trans_duration
+        offsets.append(cum)
 
     if len(clips) == 2:
-        offset = durations[0] - trans_duration
         filter_parts.append(
             f"[0:v][1:v]xfade=transition={transition}:"
-            f"duration={trans_duration}:offset={offset}[out]"
+            f"duration={trans_duration}:offset={offsets[0]}[out]"
         )
     else:
         prev = "[0:v]"
         for i in range(1, len(clips)):
-            offset = offsets[i - 1]
             out_label = "[out]" if i == len(clips) - 1 else f"[v{i}]"
             filter_parts.append(
                 f"{prev}[{i}:v]xfade=transition={transition}:"
-                f"duration={trans_duration}:offset={offset}{out_label}"
+                f"duration={trans_duration}:offset={offsets[i-1]}{out_label}"
             )
             prev = out_label if i < len(clips) - 1 else ""
 
-    args = inputs + [
+    return _ff(inputs + [
         "-filter_complex", ";".join(filter_parts),
         "-map", "[out]",
-        "-c:v", "libx264", "-pix_fmt", "yuv420p", "-r", str(FPS),
-        output,
-    ]
-    return _run_ff(args, "compose")
+        "-c:v", "libx264", "-pix_fmt", "yuv420p", "-r", str(FPS), output,
+    ], "compose")
 
 
 def build_news_video(
-    items: list[dict],
-    output: str,
+    items: list[dict], output: str,
     image_dir: Optional[str] = None,
     channel: str = "@具身智能",
-    hook_duration: float = 2.5,
-    card_duration: float = 4.0,
-    summary_duration: float = 3.0,
-    transition: str = "fade",
-    trans_duration: float = 0.3,
 ) -> bool:
     if not items:
-        print("No news items provided", file=sys.stderr)
         return False
 
-    with tempfile.TemporaryDirectory() as workdir:
-        wd = Path(workdir)
+    with tempfile.TemporaryDirectory() as wd:
+        wd = Path(wd)
         clips = []
 
-        hook_title = "今日具身智能\n有哪些大事？"
-        print("  生成钩子片头...", flush=True)
-        hook_path = str(wd / "hook.mp4")
-        if not generate_hook(hook_path, hook_title, channel=channel, duration=hook_duration):
+        print("  生成系统启动...", flush=True)
+        boot = str(wd / "boot.mp4")
+        if not generate_boot(boot):
             return False
-        clips.append(hook_path)
+        clips.append(boot)
 
         for i, item in enumerate(items):
             idx = i + 1
-            title = item.get("title", f"新闻 {idx}")
-            source = item.get("source", "未知来源")
+            title = item.get("title", f"情报 {idx}")
+            source = item.get("source", "UNKNOWN")
             img = None
             if image_dir:
                 img_file = Path(image_dir) / f"illustration_{idx}.png"
                 if img_file.exists():
                     img = str(img_file)
-            if not img and item.get("image_path"):
-                img = item["image_path"]
 
-            print(f"  生成新闻卡片 {idx}/{len(items)}: {title[:30]}...", flush=True)
-            card_path = str(wd / f"card_{idx}.mp4")
-            if not generate_news_card(
-                card_path, idx, title, source,
-                image_path=img, duration=card_duration,
-            ):
+            print(f"  生成情报卡片 {idx}/{len(items)}: {title[:30]}...", flush=True)
+            card = str(wd / f"card_{idx}.mp4")
+            if not generate_intel_card(card, idx, title, source, image_path=img):
                 return False
-            clips.append(card_path)
+            clips.append(card)
 
-        print("  生成总结片尾...", flush=True)
-        summary_path = str(wd / "summary.mp4")
-        if not generate_summary(summary_path, items, channel=channel, duration=summary_duration):
+        print("  生成终端关闭...", flush=True)
+        shutdown = str(wd / "shutdown.mp4")
+        if not generate_shutdown(shutdown, items):
             return False
-        clips.append(summary_path)
+        clips.append(shutdown)
 
-        print(f"  合成视频 ({len(clips)} 段, {transition} 转场)...", flush=True)
+        print(f"  合成视频 ({len(clips)} 段)...", flush=True)
         Path(output).parent.mkdir(parents=True, exist_ok=True)
-        if not compose_with_transitions(clips, output, transition=transition,
-                                        trans_duration=trans_duration):
+        if not compose_with_transitions(clips, output):
             return False
 
     return True

@@ -372,6 +372,131 @@ def fetch_huggingface(max_models: int = 5, max_papers: int = 5) -> list[dict]:
     return items
 
 
+def fetch_perplexity(queries: list[str]) -> list[dict]:
+    """通过 Perplexity Sonar API 或 DashScope 联网搜索获取最新资讯。"""
+    api_key = os.environ.get("PERPLEXITY_API_KEY")
+    items = []
+
+    if api_key:
+        for q in queries:
+            try:
+                r = requests.post(
+                    "https://api.perplexity.ai/chat/completions",
+                    headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+                    json={
+                        "model": "sonar",
+                        "messages": [{"role": "user", "content":
+                            f"List the 5 most important {q}. "
+                            f"For each, give title and one-sentence summary. "
+                            f"Output as JSON array with 'title' and 'summary' fields only."}],
+                    },
+                    timeout=30,
+                )
+                r.raise_for_status()
+                content = r.json()["choices"][0]["message"]["content"]
+                match = re.search(r"\[.*\]", content, re.DOTALL)
+                if match:
+                    for t in json.loads(match.group()):
+                        if t.get("title"):
+                            items.append({
+                                "title": t["title"][:200],
+                                "summary": t.get("summary", t["title"])[:300],
+                                "source": "Perplexity AI",
+                                "url": "", "image_urls": [], "video_urls": [],
+                                "published_at": datetime.now(timezone.utc).isoformat(),
+                            })
+            except Exception as e:
+                print(f"  Perplexity query failed ({q[:20]}): {e}", file=sys.stderr)
+    else:
+        ds_key = os.environ.get("DASHSCOPE_API_KEY")
+        if not ds_key:
+            print("  Perplexity skipped: no API key", file=sys.stderr)
+            return items
+        try:
+            from dashscope import Generation
+            combined_q = "；".join(queries)
+            rsp = Generation.call(
+                model="qwen-plus", api_key=ds_key,
+                messages=[{"role": "user", "content":
+                    f"你是具身智能行业研究员。请搜索并列出今天最重要的具身智能/机器人新闻，"
+                    f"搜索方向：{combined_q}。列出8条，每条包含具体公司名或技术名。"
+                    f'严格输出JSON数组，字段: "title", "summary"。'}],
+                result_format="message",
+                enable_search=True,
+            )
+            if rsp.status_code == 200:
+                content = rsp.output.choices[0].message.content.strip()
+                if content.startswith("```"):
+                    content = re.sub(r"^```(?:json)?\s*", "", content)
+                    content = re.sub(r"\s*```$", "", content)
+                match = re.search(r"\[.*\]", content, re.DOTALL)
+                if match:
+                    for t in json.loads(match.group()):
+                        if t.get("title"):
+                            items.append({
+                                "title": t["title"][:200],
+                                "summary": t.get("summary", t["title"])[:300],
+                                "source": "Perplexity AI",
+                                "url": "", "image_urls": [], "video_urls": [],
+                                "published_at": datetime.now(timezone.utc).isoformat(),
+                            })
+        except Exception as e:
+            print(f"  Perplexity fallback failed: {e}", file=sys.stderr)
+
+    return items
+
+
+def fetch_github_trending(queries: list[str]) -> list[dict]:
+    """从 GitHub 获取 trending 仓库信息。"""
+    items = []
+    headers = {"User-Agent": "embodied-ai-pipeline/1.0", "Accept": "application/vnd.github.v3+json"}
+
+    for topic in queries:
+        try:
+            r = requests.get(
+                "https://api.github.com/search/repositories",
+                params={
+                    "q": f"topic:{topic} pushed:>2026-02-01",
+                    "sort": "stars", "order": "desc", "per_page": 5,
+                },
+                headers=headers, timeout=10,
+            )
+            r.raise_for_status()
+            for repo in r.json().get("items", []):
+                name = repo.get("full_name", "")
+                desc = repo.get("description", "") or ""
+                stars = repo.get("stargazers_count", 0)
+                lang = repo.get("language", "")
+                star_str = f"{stars / 1000:.1f}K" if stars >= 1000 else str(stars)
+                items.append({
+                    "title": f"GitHub热门: {name} ⭐{star_str}",
+                    "summary": f"{desc[:150]} | 语言: {lang} | Stars: {star_str}",
+                    "source": f"GitHub | {topic}",
+                    "url": repo.get("html_url", ""),
+                    "image_urls": [], "video_urls": [],
+                    "published_at": datetime.now(timezone.utc).isoformat(),
+                })
+        except Exception as e:
+            print(f"  GitHub search failed ({topic}): {e}", file=sys.stderr)
+
+    return items
+
+
+def fetch_robot_company_sites(sites: list[dict], keywords: list[str]) -> list[dict]:
+    """从机器人公司官网获取最新新闻。"""
+    items = []
+    for site in sites:
+        url = site.get("url", "")
+        name = site.get("name", "Unknown")
+        html = fetch_url(url)
+        if not html:
+            continue
+        extracted = extract_generic(html, url, name)
+        for item in extracted[:5]:
+            items.append(item)
+    return items
+
+
 def main():
     script_path = Path(__file__).resolve()
     # scripts/ -> embodied-ai-research/ -> skills/ -> .cursor/ -> project_root
@@ -398,6 +523,20 @@ def main():
         source_type = src.get("type", "web")
         url = src.get("url", "")
         name = src.get("name", "Unknown")
+
+        if source_type == "perplexity":
+            queries = src.get("queries", ["latest embodied AI news"])
+            print(f"  Perplexity: 搜索最新资讯...", file=sys.stderr)
+            px_items = fetch_perplexity(queries)
+            all_items.extend(px_items)
+            continue
+
+        if source_type == "github":
+            queries = src.get("queries", ["robotics"])
+            print(f"  GitHub: 获取热门仓库...", file=sys.stderr)
+            gh_items = fetch_github_trending(queries)
+            all_items.extend(gh_items)
+            continue
 
         if source_type == "huggingface":
             print(f"  HuggingFace: 获取热门模型和论文...", file=sys.stderr)
@@ -427,6 +566,15 @@ def main():
             all_items.extend(llm_items)
             continue
 
+        site_urls = src.get("urls", [])
+        if site_urls:
+            print(f"  机器人公司官网: {len(site_urls)} 个站点...", file=sys.stderr)
+            company_items = fetch_robot_company_sites(site_urls, keywords)
+            all_items.extend(company_items)
+            continue
+
+        if not url:
+            continue
         html = fetch_url(url)
         if not html:
             continue

@@ -9,50 +9,27 @@
   ],
   "sources": [
     {
-      "id": "arxiv-cs-ro",
-      "name": "arXiv cs.RO",
-      "url": "https://arxiv.org/list/cs.RO/recent",
-      "type": "web",
-      "enabled": true
-    },
-    {
-      "id": "xinhua-tech",
-      "name": "新华网科技",
-      "url": "http://www.news.cn/tech/",
-      "type": "web",
-      "enabled": true
-    },
-    {
-      "id": "chinaventure",
-      "name": "投中网",
-      "url": "https://www.chinaventure.com.cn/",
-      "type": "web",
-      "enabled": true
-    },
-    {
-      "id": "gasgoo",
-      "name": "盖世汽车",
-      "url": "https://www.gasgoo.com/",
-      "type": "web",
-      "enabled": true
-    },
-    {
-      "id": "36kr",
-      "name": "36氪",
-      "url": "https://36kr.com/",
-      "type": "web",
-      "enabled": true
-    },
-    {
-      "id": "youtube-embodied-ai",
-      "name": "YouTube",
-      "type": "youtube",
+      "id": "perplexity",
+      "name": "Perplexity AI",
+      "type": "perplexity",
       "queries": [
-        "具身智能 机器人 2025",
-        "embodied AI humanoid robot",
-        "人形机器人 最新进展"
+        "latest embodied AI robotics breakthroughs this week",
+        "humanoid robot companies latest news 2026",
+        "具身智能 人形机器人 最新进展 2026"
       ],
-      "max_results": 8,
+      "enabled": true
+    },
+    {
+      "id": "robot-companies",
+      "name": "机器人公司官网",
+      "type": "web",
+      "urls": [
+        {"url": "https://bostondynamics.com/blog/", "name": "Boston Dynamics"},
+        {"url": "https://www.figure.ai/news", "name": "Figure AI"},
+        {"url": "https://www.unitree.com/news/", "name": "Unitree 宇树"},
+        {"url": "https://www.ubtrobot.com/news/", "name": "UBTECH 优必选"},
+        {"url": "https://agility.ai/news", "name": "Agility Robotics"}
+      ],
       "enabled": true
     },
     {
@@ -64,10 +41,10 @@
       "enabled": true
     },
     {
-      "id": "llm-topics",
-      "name": "AI热点分析",
-      "type": "llm",
-      "num_topics": 5,
+      "id": "github-trending",
+      "name": "GitHub Trending",
+      "type": "github",
+      "queries": ["robotics", "embodied-ai", "humanoid-robot"],
       "enabled": true
     }
   ]
