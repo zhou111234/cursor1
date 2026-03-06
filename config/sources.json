@@ -12,7 +12,7 @@
       "id": "perplexity",
       "name": "Perplexity AI",
       "type": "perplexity",
-      "query_sets": ["daily_digest", "tech_breakthrough", "product_launch"],
+      "query_sets": ["daily_digest", "tech_breakthrough", "dexterous_hand_spec"],
       "queries": [
         "latest embodied AI robotics breakthroughs this week",
         "humanoid robot companies latest news 2026"

@@ -394,11 +394,16 @@ def fetch_perplexity(queries: list[str], query_sets: list[str] = None,
         actual_queries = []
         for qs in query_sets:
             if qs in meta:
-                actual_queries.append(meta[qs])
+                mp = meta[qs]
+                actual_queries.append(mp.get("prompt", mp) if isinstance(mp, dict) else mp)
             else:
                 for dim_name, dim_data in dims.items():
                     if dim_data.get("id") == qs or dim_name == qs:
-                        actual_queries.extend(dim_data.get("queries", [])[:1])
+                        dim_queries = dim_data.get("queries", {})
+                        if isinstance(dim_queries, dict):
+                            actual_queries.append(dim_queries.get("zh", dim_queries.get("en", "")))
+                        elif isinstance(dim_queries, list):
+                            actual_queries.extend(dim_queries[:1])
                         break
         if actual_queries:
             queries = actual_queries
@@ -410,29 +415,49 @@ def fetch_perplexity(queries: list[str], query_sets: list[str] = None,
         if match:
             try:
                 for t in json.loads(match.group()):
-                    if t.get("title"):
-                        items.append({
-                            "title": t["title"][:200],
-                            "summary": t.get("summary", t["title"])[:300],
-                            "source": source_tag,
-                            "url": "", "image_urls": [], "video_urls": [],
-                            "published_at": datetime.now(timezone.utc).isoformat(),
-                        })
+                    if not t.get("title"):
+                        continue
+                    weight = t.get("info_weight", "C")
+                    confidence = t.get("confidence", "medium")
+                    if weight == "D" and confidence == "low":
+                        continue
+                    items.append({
+                        "title": t["title"][:200],
+                        "summary": t.get("summary", t["title"])[:300],
+                        "source": source_tag,
+                        "url": t.get("source_hint", ""),
+                        "validation_type": t.get("validation_type", ""),
+                        "technical_readiness": t.get("technical_readiness", ""),
+                        "is_autonomous": t.get("is_autonomous", ""),
+                        "info_weight": weight,
+                        "market_impact": t.get("market_impact", 5),
+                        "image_urls": [], "video_urls": [],
+                        "published_at": datetime.now(timezone.utc).isoformat(),
+                    })
             except json.JSONDecodeError:
                 pass
+
+    prompt_lib = _load_perplexity_prompts(project_root) if project_root else {}
+    sys_role = prompt_lib.get("system_role", "")
+    schema = prompt_lib.get("output_schema", {})
+    schema_instruction = ""
+    if schema:
+        fields = schema.get("fields", {})
+        field_desc = ", ".join(f'"{k}": {v}' for k, v in fields.items())
+        constraints = " ".join(schema.get("constraints", []))
+        schema_instruction = f"\n\nOutput schema fields: {field_desc}\nConstraints: {constraints}"
 
     if api_key:
         for q in queries:
             try:
-                prompt = (
-                    f"{q}\n\nReturn results as a JSON array. "
-                    f"Each element must have 'title' (string) and 'summary' (string) fields only. "
-                    f"No other text outside the JSON array."
-                )
+                messages = []
+                if sys_role:
+                    messages.append({"role": "system", "content": sys_role})
+                messages.append({"role": "user", "content": f"{q}{schema_instruction}"})
                 r = requests.post(
                     "https://api.perplexity.ai/chat/completions",
                     headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-                    json={"model": "sonar", "messages": [{"role": "user", "content": prompt}]},
+                    json={"model": "sonar", "messages": messages},
                     timeout=30,
                 )
                 r.raise_for_status()
@@ -447,10 +472,11 @@ def fetch_perplexity(queries: list[str], query_sets: list[str] = None,
         try:
             from dashscope import Generation
             for q in queries[:2]:
+                role_prefix = sys_role[:200] + "..." if sys_role else "你是具身智能行业情报分析师。"
                 prompt = (
-                    f"你是具身智能行业研究员。{q}\n\n"
-                    f"列出5-8条结果，每条包含具体公司名或技术名。"
-                    f'严格输出JSON数组，字段: "title", "summary"。不要输出其他内容。'
+                    f"{role_prefix}\n\n{q}\n\n"
+                    f"列出5-8条结果。{schema_instruction}\n"
+                    f"严格输出JSON数组。不要输出其他内容。"
                 )
                 rsp = Generation.call(
                     model="qwen-plus", api_key=ds_key,

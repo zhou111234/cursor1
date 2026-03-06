@@ -1,63 +1,206 @@
 {
-  "_description": "Perplexity 具身智能热点搜索提示词库。按维度分类，每次抓取自动轮换使用。",
-  "_usage": "scrape_sources.py 的 fetch_perplexity() 函数会根据 config/sources.json 中的 query_sets 字段选取对应维度的提示词。",
+  "_version": "3.0",
+  "_description": "Perplexity 具身智能情报引擎——专业提示词库 v3。作为 Cursor Skill 自动加载，触发信息检索时规范与 Perplexity 的交互。",
+  "_changelog": "v3: 融合噪声过滤/时效验证/多源互证/供应链维度/搜索算子优化/信息权重评分体系。",
+
+  "system_role": "You are a senior embodied AI intelligence analyst operating a real-time monitoring system. Your clearance level: TOP SECRET / EMBODIED AI. Rules: (1) VERIFIED FACTS ONLY — every claim must be traceable to a named source (company blog, arXiv paper, press release, SEC filing). If unverifiable, mark [UNVERIFIED]. (2) TEMPORAL PRECISION — every item must include a specific date or date range. News older than 7 days must be tagged [OLD NEWS RE-SURFACED] unless it is a previously unrecorded milestone. (3) NOISE REJECTION — discard pure promotional marketing content without technical or commercial substance. Discard vague 'AI will change the world' articles. (4) AUTONOMY VERIFICATION — for any robot demonstration, explicitly state whether it was FULLY AUTONOMOUS, TELEOPERATED, or MIXED. (5) NAMED ENTITIES REQUIRED — every item must reference at least one specific company, product model, paper title, or person name. (6) QUANTITATIVE DATA PREFERRED — include numbers (funding $, TOPS, DoF, Wh/kg, success rate %) whenever available. (7) OUTPUT LANGUAGE — match query language (English query → English, 中文 query → 中文).",
+
+  "output_schema": {
+    "format": "JSON array, no markdown, no preamble, no explanation",
+    "fields": {
+      "title": "Headline, max 80 chars. Must contain ≥1 named entity.",
+      "summary": "2-3 sentences. Must start with a date (e.g. 'On Mar 5, ...' or '3月5日，...'). Include: what, who, quantitative data, why it matters.",
+      "source_hint": "Original source if identifiable (e.g. 'TechCrunch', 'arXiv:2603.xxxxx', 'company blog'). Empty if unknown.",
+      "confidence": "high / medium / low",
+      "validation_type": "Peer-reviewed Paper | Official Product Launch | Demo Video | Industry Report | Leak/Rumor | Government Policy",
+      "technical_readiness": "Research | Lab Demo | Pilot | Mass Production",
+      "is_autonomous": "Autonomous / Teleoperated / Mixed / N/A",
+      "info_weight": "A (primary source: paper, official blog, SEC filing) | B (major media: TechCrunch, Reuters, IEEE) | C (secondary media, social media) | D (unverified rumor)",
+      "market_impact": "1-10 scale. 10 = industry-reshaping, 1 = minor update."
+    },
+    "constraints": [
+      "Return 5-8 items per query",
+      "No duplicate topics across items",
+      "Every item MUST reference a specific named entity (company, product, model, paper)",
+      "Do NOT fabricate events. If unsure, set confidence: low and info_weight: D",
+      "Strictly exclude news older than 7 days UNLESS it is a major milestone previously unrecorded (tag as [OLD NEWS RE-SURFACED])",
+      "Discard pure promotional marketing content without technical or commercial substance",
+      "Differentiate between 'Bipedal' and 'Wheeled' embodied AI developments",
+      "For Chinese companies, verify against original Chinese-language sources to ensure translation accuracy",
+      "For robot demos, always identify if teleoperation was involved",
+      "Output ONLY the JSON array. No markdown fences, no commentary."
+    ]
+  },
 
   "dimensions": {
     "技术突破": {
       "id": "tech_breakthrough",
-      "queries": [
-        "What are the most significant embodied AI and humanoid robot technical breakthroughs this week? Focus on locomotion, manipulation, perception, and foundation models. List 5 items with company names.",
-        "Latest SOTA results in robot learning: imitation learning, reinforcement learning, VLA (Vision-Language-Action) models, world models. What papers or demos were released this week?",
-        "本周具身智能领域有哪些重大技术突破？包括运动控制、灵巧操作、多模态感知、端到端学习等方向，列出具体公司和技术名称。"
-      ]
+      "description": "运动控制、灵巧操作、感知、基础模型等核心技术的突破性进展",
+      "queries": {
+        "en": "Search for the most significant embodied AI technical breakthroughs in the past 7 days. Sub-areas: (a) Locomotion & balance — bipedal walking on rough terrain, dynamic recovery, stair climbing. Differentiate AUTONOMOUS vs TELEOPERATED demos. (b) Dexterous manipulation — grasping, tool use, in-hand rotation. Note DoF count and tactile sensor type. (c) Perception — tactile sensing (GelSight, DIGIT), 3D scene understanding (3DGS, NeRF), multimodal fusion. (d) Foundation models — VLA (OpenVLA, Pi0, Octo, RT-X), world models, diffusion policies. Note benchmark scores. For each: name the company/lab, cite the source, include performance metrics. Check: Google DeepMind, Meta FAIR, NVIDIA, Toyota Research, UC Berkeley, Stanford, CMU, Tsinghua, SJTU. site:arxiv.org OR site:deepmind.google OR site:ai.meta.com",
+        "zh": "搜索过去7天具身智能领域最重大的技术突破。细分方向：(a) 运动控制——双足行走、复杂地形、动态恢复，必须标注是自主还是遥操作；(b) 灵巧操作——抓取、工具使用、手内旋转，标注自由度数和触觉传感器类型；(c) 感知系统——触觉(GelSight/DIGIT)、3D场景(3DGS/NeRF)、多模态融合；(d) 基础模型——VLA(OpenVLA/Pi0/Octo/RT-X)、世界模型、扩散策略，标注benchmark分数。每条标注公司/实验室名称、信息来源、性能指标。重点关注：DeepMind、Meta FAIR、NVIDIA、丰田研究院、UCB、Stanford、CMU、清华、上交。"
+      }
     },
     "产品发布": {
       "id": "product_launch",
-      "queries": [
-        "What new humanoid robots or embodied AI products were announced or launched this week? Include Boston Dynamics, Figure AI, Tesla Optimus, Unitree, UBTECH, Agility Robotics, 1X Technologies, Sanctuary AI, and any Chinese robotics startups.",
-        "最近一周有哪些人形机器人或具身智能新产品发布？包括硬件、软件平台、开发工具、仿真环境等。"
-      ]
+      "description": "人形机器人整机、零部件、软件平台、仿真工具的新品发布",
+      "queries": {
+        "en": "List all humanoid robot and embodied AI product announcements in the past 7 days. Must check: Boston Dynamics (Atlas), Figure AI (Figure 01/02/03, Helix), Tesla (Optimus Gen2/3), Unitree (H1/G1/H2), UBTECH (Walker S2), Agility (Digit), 1X (NEO), Sanctuary AI (Phoenix), Fourier Intelligence (GR-1/GR-2), Xiaomi (CyberOne/CyberDog), XPeng Robotics, Agibot (银河通用), Galbot, Zhiyuan (智元). Also check simulation platforms (Isaac Sim, Genesis, ManiSkill) and frameworks (LeRobot). For each product: list key specs, pricing if available, production timeline. Categorize as Lab Research / Pilot / Mass Production. site:figure.ai OR site:bostondynamics.com OR site:unitree.com OR site:tesla.com",
+        "zh": "列出过去7天所有人形机器人/具身智能新品发布。必须检查：波士顿动力(Atlas)、Figure AI(Helix)、特斯拉(Optimus)、宇树(H1/G1/H2)、优必选(Walker S2)、Agility(Digit)、1X(NEO)、Sanctuary(Phoenix)、傅利叶(GR系列)、小米(CyberOne)、小鹏机器人、银河通用(Agibot)、智元机器人。每个产品标注：核心参数、定价（如有）、量产时间线。分类为：研究阶段/试点/量产。"
+      }
     },
     "投融资": {
       "id": "funding",
-      "queries": [
-        "Latest funding rounds, acquisitions, and IPO news in humanoid robotics and embodied AI sector this month. Include deal sizes, investors, and company valuations.",
-        "具身智能和人形机器人领域最新的投融资事件，包括融资金额、投资方、估值变化。"
-      ]
+      "description": "融资、收购、IPO、估值变动等资本市场事件",
+      "queries": {
+        "en": "Latest funding, M&A, and IPO events in humanoid robotics and embodied AI in the past 30 days. For each: company name, round (Seed/A/B/C/D+/IPO), exact amount, lead investors, post-money valuation, use of funds. Cover US, EU, China, Japan, Korea. site:techcrunch.com OR site:reuters.com OR site:dealroom.co OR site:36kr.com \"humanoid\" AND \"funding\" OR \"融资\"",
+        "zh": "过去30天具身智能/人形机器人领域投融资事件。每条需包含：公司名、轮次、精确金额、领投方、投后估值、资金用途。覆盖中美欧日韩。验证来源：TechCrunch、Reuters、36氪、投中网、企查查。"
+      }
     },
     "产业落地": {
       "id": "industry_deployment",
-      "queries": [
-        "Real-world deployments of humanoid robots and embodied AI systems this week: manufacturing, logistics, healthcare, household, construction. Which companies deployed where?",
-        "人形机器人在工业制造、物流仓储、医疗康养、家庭服务等场景的最新落地案例，包括具体客户和效果数据。"
-      ]
+      "description": "真实场景部署、客户案例、商业化进展",
+      "queries": {
+        "en": "Real-world deployments of humanoid robots in the past 30 days. Sectors: (a) manufacturing — which factory, how many units, what tasks; (b) logistics — warehouse picking, delivery; (c) healthcare — elderly care, rehab; (d) household; (e) hazardous — construction, mining. For each: deploying company, customer/site name, unit count, reported performance data (uptime, task completion rate). CRITICAL: distinguish fully autonomous operation from teleoperated or human-supervised.",
+        "zh": "过去30天人形机器人真实场景部署案例。覆盖：制造（哪家工厂、多少台、做什么）、物流、医疗、家庭、危险作业。每条标注：部署企业、客户/场地名、台数、效果数据（运行时间、任务完成率）。关键：区分全自主运行和遥操作/人工监督。"
+      }
     },
     "政策法规": {
       "id": "policy",
-      "queries": [
-        "Latest government policies, regulations, and standards related to humanoid robots and embodied AI in China, US, EU, Japan, and South Korea.",
-        "各国关于具身智能和人形机器人的最新政策、法规、标准、产业规划有哪些更新？"
-      ]
+      "description": "各国政府政策、行业标准、监管框架",
+      "queries": {
+        "en": "Government policies, regulations, standards for humanoid robots and embodied AI announced in past 30 days. Check: China (MIIT, MOST, NDRC — 工信部/科技部/发改委), US (DARPA, NSF, NIST, White House executive orders), EU (AI Act amendments, CE marking for robots), Japan (METI), South Korea. Include: document name, date, key provisions, funding allocations.",
+        "zh": "过去30天各国关于人形机器人/具身智能的政策法规更新。中国（工信部/科技部/发改委）、美国（DARPA/NSF/白宫行政令）、欧盟（AI法案修正/CE认证）、日本、韩国。需标注：文件名、发布日期、核心条款、财政拨款。"
+      }
     },
     "开源生态": {
       "id": "open_source",
-      "queries": [
-        "Most important open-source releases in robotics and embodied AI this week: new models on HuggingFace, new frameworks on GitHub, new datasets, new simulation environments like Isaac Sim, MuJoCo, SAPIEN.",
-        "本周具身智能开源生态有哪些重要更新？包括新模型、新框架、新数据集、新仿真工具。"
-      ]
+      "description": "开源模型、框架、数据集、仿真环境的重要更新",
+      "queries": {
+        "en": "Most important open-source releases in robotics and embodied AI in past 14 days. Check: (a) HuggingFace — new models (Octo, OpenVLA, RT-X, Pi0, LeRobot policies); (b) GitHub — frameworks (LeRobot, robosuite, ManiSkill, DORA, robomimic); (c) Datasets — new manipulation/locomotion datasets with size and modality; (d) Simulation — Isaac Sim, Genesis, MuJoCo, SAPIEN, Habitat updates. For each: repo/model name, creator org, star count or downloads, specific changes. site:github.com OR site:huggingface.co",
+        "zh": "过去14天具身智能开源生态重要更新。检查：(a) HuggingFace新模型（Octo/OpenVLA/RT-X/Pi0）；(b) GitHub框架（LeRobot/robosuite/ManiSkill/DORA）；(c) 新数据集（规模和模态）；(d) 仿真工具（Isaac Sim/Genesis/MuJoCo/SAPIEN）。每条标注名称、组织、Stars/下载量、具体更新内容。"
+      }
     },
     "学术前沿": {
       "id": "academic",
-      "queries": [
-        "Top 5 most cited or discussed embodied AI papers this week from arXiv, ICRA, CoRL, RSS, NeurIPS, CVPR. Focus on manipulation, locomotion, sim-to-real transfer, and foundation models for robotics.",
-        "本周具身智能领域最受关注的学术论文，包括机器人操作、运动规划、仿真迁移、机器人基础模型等方向。"
-      ]
+      "description": "顶会/顶刊论文、预印本中的前沿研究",
+      "queries": {
+        "en": "Top 5 most impactful embodied AI papers from past 7 days on arXiv (cs.RO, cs.AI, cs.CV). Prioritize: Google DeepMind, Meta FAIR, NVIDIA, Toyota Research, UC Berkeley, Stanford, CMU, Tsinghua, SJTU, PKU. For each: full title, first+last author, key method in 1 sentence, claimed improvement (X% on Y benchmark), arXiv ID. CRITICAL: note if the method was validated on REAL hardware or simulation only.",
+        "zh": "过去7天arXiv上最有影响力的5篇具身智能论文。优先：DeepMind/Meta FAIR/NVIDIA/丰田/UCB/Stanford/CMU/清华/上交/北大。每篇：完整标题、第一+通讯作者、核心方法（一句话）、性能提升数据、arXiv编号。关键：标注方法是在真实硬件还是仅仿真中验证。"
+      }
+    },
+    "灵巧手专项": {
+      "id": "dexterous_hand_spec",
+      "description": "灵巧手硬件、触觉感知、自由度控制及关键零部件（电机/传动/传感器）",
+      "queries": {
+        "en": "Latest on robotic dexterous hands in past 30 days. Focus: (a) Hardware specs — active DoFs, payload (kg), integrated tactile sensors (GelSight, DIGIT, piezoresistive arrays, capacitive skins); (b) Actuation — integrated motor-drive units, tendon-driven vs linkage-driven, hollow-cup motors (Maxon, Moons/鸣志电器); (c) Key players — Tesla Optimus hands (Gen2/3), Clone Robotics, Shadow Robot, Sanctuary AI, Fourier (傅利叶), Agibot, Linkhou (领猴), Dazu (大寰). For each: specific torque (Nm), response frequency (Hz), whether force feedback / tactile closed-loop is achieved. CRITICAL: categorize as Prototype or Commercial Product. Check if demonstrations were autonomous or teleoperated.",
+        "zh": "过去30天灵巧手硬件最新动态。关注：(a) 核心参数——主动自由度数、负载(kg)、触觉传感器类型（GelSight/电子皮肤/压阻阵列）；(b) 驱动——集成电机驱动/绳驱/连杆驱动，空心杯电机供应商（Maxon/鸣志电器）；(c) 重点企业——Tesla Optimus手、Clone Robotics、Shadow Robot、傅利叶、智元/领猴/大寰。每条标注扭矩(Nm)、响应频率(Hz)、是否具备力反馈/触觉闭环。关键：区分原型机和量产品；区分自主演示和遥操作。"
+      },
+      "output_extra_fields": {
+        "dof_active": "Number of active degrees of freedom",
+        "tactile_integrated": "Yes/No with sensor type",
+        "drive_type": "Direct drive / Tendon / Linkage / Hollow-cup"
+      }
+    },
+    "端侧推理芯片": {
+      "id": "edge_compute_spec",
+      "description": "专为机器人设计的端侧推理芯片、算力模组及异构计算平台",
+      "queries": {
+        "en": "New AI chips or compute modules optimized for embodied AI in past 60 days. Focus: (a) NVIDIA — Jetson Thor, Blackwell edge modules; (b) Specialized — Ambarella, Hailo, Horizon Robotics (地平线 Journey series), Black Sesame (黑芝麻), Axera (爱芯元智); (c) Metrics — TOPS (INT8), TFLOPS (FP16/FP8), memory bandwidth (GB/s), power consumption (W), TOPS/W efficiency. Look for 'Spatial Computing' or 'Transformer Acceleration' features. Note partnerships with humanoid robot OEMs. CRITICAL: report TOPS-per-Watt efficiency — high raw compute without power efficiency is unusable for mobile humanoids.",
+        "zh": "过去60天专为具身智能优化的端侧计算平台。关注：(a) NVIDIA Jetson Thor及Blackwell端侧模块；(b) 专用芯片——Ambarella、Hailo、地平线（征程系列）、黑芝麻、爱芯元智；(c) 指标——INT8算力(TOPS)、FP8/FP16算力(TFLOPS)、内存带宽(GB/s)、功耗(W)、每瓦算力(TOPS/W)。关注'空间计算'或'Transformer加速'特性。标注与机器人主机厂的定点合作。关键：必须报告每瓦算力——高算力不兼顾功耗在人形机器人上无法落地。"
+      },
+      "output_extra_fields": {
+        "compute_power": "TOPS or TFLOPS",
+        "memory_bandwidth": "GB/s",
+        "power_efficiency": "TOPS/W",
+        "target_models": "VLA / Diffusion / SLAM / Transformer"
+      }
+    },
+    "动力与热管理": {
+      "id": "power_thermal_spec",
+      "description": "高能量密度电池、热管理系统及充电技术",
+      "queries": {
+        "en": "Robot power system news in past 60 days. Focus: (a) Battery — solid-state batteries (Samsung SDI, Donut Labs, QuantumScape) and high-nickel for humanoids, energy density (Wh/kg), cycle life; (b) Charging — autonomous battery-swapping (Atlas-style), wireless charging modules, fast-charge rates; (c) Thermal management — liquid cooling, thermal coatings for high-torque motors and onboard AI. Report specific Wh/kg and continuous discharge C-rate. Check patents from Tesla, Unitree, Figure AI.",
+        "zh": "过去60天机器人动力系统更新。关注：(a) 电池——全固态(Samsung SDI/Donut Labs/QuantumScape)和高镍三元，能量密度(Wh/kg)、循环寿命；(b) 充电——自主换电/无线充电/快充倍率；(c) 热管理——液冷、散热涂层。标注Wh/kg和持续放电C倍率。检查Tesla/Unitree/Figure AI相关专利。"
+      },
+      "output_extra_fields": {
+        "battery_chemistry": "Solid-state / LFP / High-Nickel / LTO",
+        "energy_density": "Wh/kg",
+        "cooling_type": "Active Liquid / Passive / Air"
+      }
+    },
+    "仿真与数字孪生": {
+      "id": "sim_to_real_spec",
+      "description": "物理精确仿真平台、合成数据生成及Sim-to-Real迁移",
+      "queries": {
+        "en": "Robotics simulation platform updates in past 90 days. Focus: (a) Platforms — NVIDIA Isaac Sim (Lab/Gym), Genesis, MuJoCo, SAPIEN, Habitat; (b) Tech — 3D Gaussian Splatting (3DGS) for spatial modeling, Sim-to-Real transfer success rates, domain randomization techniques; (c) Synthetic data — GenAI tools for diverse training environments; (d) Standards — OpenUSD interoperability. Look for 'Simulation-First' case studies in automotive, logistics. Report claimed Sim-to-Real success rates (%).",
+        "zh": "过去90天机器人仿真平台更新。关注：(a) 平台——Isaac Sim/Genesis/MuJoCo/SAPIEN/Habitat；(b) 技术——3D高斯泼溅(3DGS)空间建模、Sim-to-Real迁移成功率、域随机化；(c) 合成数据——生成式AI训练环境工具；(d) 标准——OpenUSD互操作性。寻找汽车/物流'仿真先行'案例。标注Sim-to-Real成功率(%)。"
+      },
+      "output_extra_fields": {
+        "sim_platform": "Isaac Sim / Genesis / MuJoCo / SAPIEN",
+        "sim_to_real_rate": "Claimed success rate %",
+        "spatial_tech": "3DGS / NeRF / LiDAR-SLAM / Occupancy"
+      }
+    },
+    "仿生材料与柔性结构": {
+      "id": "bionic_material_spec",
+      "description": "仿生肌肉、自修复皮肤、柔性执行器及减震结构",
+      "queries": {
+        "en": "Breakthroughs in robot structural materials in past 6 months. Focus: (a) Artificial muscles — drive fiber materials (MuscleTech), electro-active polymers, twisted-coiled actuators; (b) Soft tissue — silicone skins with human-like texture and temperature resistance (Guibao Tech/硅宝科技), e-skins with embedded sensors; (c) Self-healing — materials that repair surface damage autonomously. Report weight-to-strength ratios and 'bio-mimicry' scores. Categorize as Lab Research or Commercial Product. Check suppliers: 硅宝科技, Ecoflex, Smooth-On.",
+        "zh": "过去6个月机器人结构材料突破。关注：(a) 人工肌肉——驱动纤维(MuscleTech)、电活性聚合物、扭转盘绕驱动器；(b) 柔性组织——类人质感硅胶皮肤(硅宝科技)、嵌入式传感器电子皮肤；(c) 自修复材料。标注强重比和仿生度评分。区分实验室研究和商业产品。关注供应商：硅宝科技、Ecoflex、Smooth-On。"
+      },
+      "output_extra_fields": {
+        "material_type": "Artificial Muscle / Silicone Skin / Carbon Fiber / Self-healing Polymer",
+        "bio_feature": "Self-healing / Tactile-sensitive / High-flexibility / Temperature-resistant",
+        "application": "Facial expression / Gripper / Joint damping / Full-body skin"
+      }
     }
   },
 
   "meta_prompts": {
-    "daily_digest": "You are an embodied AI industry analyst. Search for today's most important news across: technical breakthroughs, product launches, funding, real-world deployments, policy updates, and open-source releases in humanoid robotics and embodied AI. Return exactly 8 items. Each must include a specific company name or technology name. Output as JSON array with 'title' and 'summary' fields.",
-    "weekly_roundup": "Summarize this week's top 10 developments in embodied AI and humanoid robotics. Cover: (1) major product announcements, (2) technical milestones, (3) funding events, (4) policy changes, (5) notable open-source releases. Be specific with names, numbers, and dates.",
-    "trend_analysis": "What are the 3 emerging trends in embodied AI that became clearer this week? For each trend, provide: the trend name, 2-3 supporting data points from this week's news, and a brief analysis of why it matters for the industry."
+    "daily_digest": {
+      "description": "每日综合情报扫描，覆盖全部维度",
+      "prompt": "You are compiling today's TOP SECRET embodied AI intelligence briefing. Search for the 8 most important developments TODAY across ALL dimensions: technical breakthroughs, product launches, funding, deployments, policy, open-source, papers, components (hands, chips, batteries, materials). Each item MUST: (1) reference a specific named entity, (2) include a date, (3) have quantitative data where possible, (4) note if demos are autonomous vs teleoperated. Rank by market_impact score (1-10). Tag info_weight: A for primary sources, B for major media, C for secondary, D for rumors."
+    },
+    "weekly_roundup": {
+      "description": "每周十大要闻，按维度配额分配",
+      "prompt": "Top 10 developments in embodied AI this week. Balance: 2 product announcements, 2 technical milestones, 1-2 funding events, 1 policy update, 1-2 open-source releases, 1 notable paper, 1 supply-chain/component update. Each with quantitative data. Tag [OLD NEWS RE-SURFACED] if recycled. Exclude marketing fluff."
+    },
+    "trend_analysis": {
+      "description": "本周3大趋势及支撑论据",
+      "prompt": "3 emerging trends in embodied AI this week. For each: (a) trend name (max 10 words), (b) 2-3 supporting events with named entities and dates, (c) why it matters (2-3 sentences), (d) key beneficiary companies. Output fields: trend_name, supporting_events[], analysis, key_players[]."
+    },
+    "competitive_landscape": {
+      "description": "12家头部公司竞争态势扫描",
+      "prompt": "Competitive landscape update for humanoid robotics. For each company, find their most recent development (within 30 days): Tesla Optimus, Boston Dynamics Atlas, Figure AI, Unitree, UBTECH Walker, Agility Digit, 1X NEO, Sanctuary Phoenix, 智元机器人, 银河通用Agibot, 傅利叶GR, Xiaomi CyberOne. Fields: company, product, latest_update, date, technical_readiness (Research/Pilot/Production), significance."
+    },
+    "reality_check": {
+      "description": "对本周热点新闻的批判性审查——识别夸大和局限",
+      "prompt": "Search for expert criticisms, known limitations, and reality checks for the top 3 most-hyped embodied AI announcements this week. Check X (Twitter) threads from Jim Fan, Andrej Karpathy, Pieter Abbeel, Chelsea Finn, and robotics subreddits (r/robotics, r/MachineLearning). For each: the original claim, the criticism/limitation, the critic's identity, and your assessment of whether the criticism is valid."
+    }
+  },
+
+  "social_media_firehose": {
+    "_description": "社交媒体前哨站——捕捉尚未成为正式新闻的早期信号",
+    "x_twitter": {
+      "monitor_accounts": [
+        "@jimfan_", "@kaborma", "@paborma", "@chelseabfinn", "@svlevine",
+        "@GoogleDeepMind", "@BostonDynamics", "@Figure_robot", "@Tesla_Optimus",
+        "@UnitreeRobotics", "@1aboratory", "@sanctuaryai"
+      ],
+      "query": "Check latest viral humanoid robot clips and announcements on X (Twitter) from key accounts and hashtags #EmbodiedAI #HumanoidRobot #Robotics from the last 48 hours. Note engagement metrics (likes, retweets) as signal strength."
+    },
+    "reddit": {
+      "subreddits": ["r/robotics", "r/MachineLearning", "r/LocalLLaMA"],
+      "query": "Check top posts on r/robotics, r/MachineLearning related to humanoid robots or embodied AI from last 48 hours. Note upvote count and comment sentiment."
+    }
+  },
+
+  "info_weight_system": {
+    "_description": "信息权重评分体系，用于过滤噪声和排序",
+    "A_primary": "arXiv papers, official company blogs, SEC/CSRC filings, GitHub releases, HuggingFace model cards",
+    "B_major_media": "TechCrunch, Reuters, Bloomberg, IEEE Spectrum, The Robot Report, 机器之心, 量子位",
+    "C_secondary": "Social media posts, YouTube demos, personal blogs, 36Kr, 智东西",
+    "D_unverified": "Anonymous leaks, rumor accounts, unattributed claims"
   }
 }
