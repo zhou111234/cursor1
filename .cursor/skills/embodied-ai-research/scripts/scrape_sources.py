@@ -9,10 +9,12 @@ import json
 import os
 import re
 import sys
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 from urllib.parse import urljoin, quote
+from xml.etree import ElementTree as ET
 
 try:
     import requests
@@ -547,9 +549,146 @@ def fetch_robot_company_sites(sites: list[dict], keywords: list[str]) -> list[di
     return items
 
 
+def fetch_rss(url: str, source_name: str, max_items: int = 10, keywords: list[str] = None) -> list[dict]:
+    """通用 RSS/Atom feed 抓取。"""
+    items = []
+    try:
+        r = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=10)
+        r.raise_for_status()
+        root = ET.fromstring(r.content)
+
+        ns = {"atom": "http://www.w3.org/2005/Atom"}
+        entries = root.findall(".//item")
+        if not entries:
+            entries = root.findall(".//atom:entry", ns)
+
+        for entry in entries[:max_items * 3]:
+            title_el = entry.find("title")
+            if title_el is None:
+                title_el = entry.find("atom:title", ns)
+            link_el = entry.find("link")
+            if link_el is None:
+                link_el = entry.find("atom:link", ns)
+            desc_el = entry.find("description")
+            if desc_el is None:
+                desc_el = entry.find("atom:summary", ns)
+
+            title = (title_el.text or "").strip() if title_el is not None else ""
+            if not title or len(title) < 5:
+                continue
+
+            link = ""
+            if link_el is not None:
+                link = link_el.text or link_el.get("href", "")
+
+            desc = ""
+            if desc_el is not None and desc_el.text:
+                desc = re.sub(r"<[^>]+>", "", desc_el.text).strip()[:300]
+
+            if keywords:
+                combined = (title + " " + desc).lower()
+                if not any(kw.lower() in combined for kw in keywords):
+                    continue
+
+            items.append({
+                "title": title[:200],
+                "summary": (desc or title)[:300],
+                "source": source_name,
+                "url": link,
+                "image_urls": [], "video_urls": [],
+                "published_at": datetime.now(timezone.utc).isoformat(),
+            })
+            if len(items) >= max_items:
+                break
+    except Exception as e:
+        print(f"  RSS fetch failed ({source_name}): {e}", file=sys.stderr)
+    return items
+
+
+def fetch_google_news(query: str, max_items: int = 10) -> list[dict]:
+    """通过 Google News RSS 获取最新新闻。"""
+    url = f"https://news.google.com/rss/search?q={quote(query)}&hl=en&gl=US&ceid=US:en"
+    return fetch_rss(url, "Google News", max_items=max_items)
+
+
+def _dispatch_source(src: dict, keywords: list[str], project_root: Path) -> list[dict]:
+    """单个源的抓取调度——供线程池调用。"""
+    source_type = src.get("type", "web")
+    url = src.get("url", "")
+    name = src.get("name", "Unknown")
+
+    try:
+        if source_type == "perplexity":
+            return fetch_perplexity(
+                src.get("queries", []),
+                query_sets=src.get("query_sets"),
+                project_root=project_root,
+            )
+
+        if source_type == "github":
+            return fetch_github_trending(src.get("queries", ["robotics"]))
+
+        if source_type == "huggingface":
+            return fetch_huggingface(
+                max_models=src.get("max_models", 5),
+                max_papers=src.get("max_papers", 5),
+            )
+
+        if source_type == "rss":
+            results = []
+            for feed in src.get("feeds", []):
+                feed_url = feed.get("url", "")
+                feed_name = feed.get("name", name)
+                kw_filter = feed.get("keyword_filter", False)
+                results.extend(fetch_rss(
+                    feed_url, feed_name,
+                    max_items=feed.get("max_items", 8),
+                    keywords=keywords if kw_filter else None,
+                ))
+            return results
+
+        if source_type == "google_news":
+            results = []
+            for q in src.get("queries", ["humanoid robot"]):
+                results.extend(fetch_google_news(q, max_items=src.get("max_items", 8)))
+            return results
+
+        if source_type == "youtube":
+            results = []
+            for q in src.get("queries", keywords[:3]):
+                results.extend(extract_youtube(q, source_name=name,
+                                               max_results=src.get("max_results", 8)))
+            return results
+
+        if source_type == "llm":
+            api_key = os.environ.get("DASHSCOPE_API_KEY")
+            if not api_key:
+                return []
+            return generate_llm_topics(api_key, num_topics=src.get("num_topics", 5))
+
+        site_urls = src.get("urls", [])
+        if site_urls:
+            return fetch_robot_company_sites(site_urls, keywords)
+
+        if not url:
+            return []
+        html = fetch_url(url)
+        if not html:
+            return []
+        if "arxiv" in url.lower():
+            return extract_arxiv(html, url)
+        raw = extract_generic(html, url, name)
+        return [it for it in raw
+                if any(kw.lower() in (it.get("title", "") + it.get("summary", "")).lower()
+                       for kw in keywords)]
+
+    except Exception as e:
+        print(f"  [{name}] 抓取异常: {e}", file=sys.stderr)
+        return []
+
+
 def main():
     script_path = Path(__file__).resolve()
-    # scripts/ -> embodied-ai-research/ -> skills/ -> .cursor/ -> project_root
     project_root = script_path.parent.parent.parent.parent.parent
     config_path = project_root / "config" / "sources.json"
     output_dir = project_root / "outputs" / "scraped"
@@ -567,79 +706,28 @@ def main():
     keywords = config.get("keywords", [])
     all_items = []
 
-    for src in config.get("sources", []):
-        if not src.get("enabled", True):
-            continue
-        source_type = src.get("type", "web")
-        url = src.get("url", "")
-        name = src.get("name", "Unknown")
+    enabled_sources = [s for s in config.get("sources", []) if s.get("enabled", True)]
+    print(f"  并行抓取 {len(enabled_sources)} 个数据源...", file=sys.stderr)
 
-        if source_type == "perplexity":
-            queries = src.get("queries", ["latest embodied AI news"])
-            query_sets = src.get("query_sets", None)
-            print(f"  Perplexity: 搜索最新资讯...", file=sys.stderr)
-            px_items = fetch_perplexity(queries, query_sets=query_sets,
-                                         project_root=project_root)
-            all_items.extend(px_items)
-            continue
+    import time
+    t0 = time.time()
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        futures = {}
+        for src in enabled_sources:
+            f = pool.submit(_dispatch_source, src, keywords, project_root)
+            futures[f] = src.get("name", src.get("id", "?"))
 
-        if source_type == "github":
-            queries = src.get("queries", ["robotics"])
-            print(f"  GitHub: 获取热门仓库...", file=sys.stderr)
-            gh_items = fetch_github_trending(queries)
-            all_items.extend(gh_items)
-            continue
+        for f in as_completed(futures):
+            name = futures[f]
+            try:
+                result = f.result()
+                all_items.extend(result)
+                print(f"  ✓ {name}: {len(result)} 条", file=sys.stderr)
+            except Exception as e:
+                print(f"  ✗ {name}: {e}", file=sys.stderr)
 
-        if source_type == "huggingface":
-            print(f"  HuggingFace: 获取热门模型和论文...", file=sys.stderr)
-            hf_items = fetch_huggingface(
-                max_models=src.get("max_models", 5),
-                max_papers=src.get("max_papers", 5),
-            )
-            all_items.extend(hf_items)
-            continue
-
-        if source_type == "youtube":
-            queries = src.get("queries", keywords[:3])
-            for q in queries:
-                print(f"  YouTube search: {q}", file=sys.stderr)
-                yt_items = extract_youtube(q, source_name=name,
-                                           max_results=src.get("max_results", 8))
-                all_items.extend(yt_items)
-            continue
-
-        if source_type == "llm":
-            api_key = os.environ.get("DASHSCOPE_API_KEY")
-            if not api_key:
-                print("LLM source skipped: DASHSCOPE_API_KEY not set", file=sys.stderr)
-                continue
-            print(f"  LLM generating topics...", file=sys.stderr)
-            llm_items = generate_llm_topics(api_key, num_topics=src.get("num_topics", 5))
-            all_items.extend(llm_items)
-            continue
-
-        site_urls = src.get("urls", [])
-        if site_urls:
-            print(f"  机器人公司官网: {len(site_urls)} 个站点...", file=sys.stderr)
-            company_items = fetch_robot_company_sites(site_urls, keywords)
-            all_items.extend(company_items)
-            continue
-
-        if not url:
-            continue
-        html = fetch_url(url)
-        if not html:
-            continue
-
-        if "arxiv" in url.lower():
-            items = extract_arxiv(html, url)
-        else:
-            items = extract_generic(html, url, name)
-
-        for item in items:
-            title_lower = (item.get("title", "") + item.get("summary", "")).lower()
-            if any(kw.lower() in title_lower for kw in keywords):
-                all_items.append(item)
+    elapsed = time.time() - t0
+    print(f"  抓取完成: {len(all_items)} 条 / {elapsed:.1f}s", file=sys.stderr)
 
     seen_titles = set()
     by_source: dict[str, list[dict]] = {}
@@ -652,7 +740,7 @@ def main():
         by_source.setdefault(src_key, []).append(item)
 
     balanced: list[dict] = []
-    max_items = 20
+    max_items = 30
     round_idx = 0
     while len(balanced) < max_items:
         added = False

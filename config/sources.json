@@ -1,11 +1,7 @@
 {
   "keywords": [
-    "具身智能",
-    "embodied AI",
-    "人形机器人",
-    "humanoid robot",
-    "机器人",
-    "robotics"
+    "具身智能", "embodied AI", "人形机器人", "humanoid robot",
+    "机器人", "robotics", "dexterous", "manipulation"
   ],
   "sources": [
     {
@@ -13,9 +9,29 @@
       "name": "Perplexity AI",
       "type": "perplexity",
       "query_sets": ["daily_digest", "tech_breakthrough", "dexterous_hand_spec"],
+      "queries": ["latest embodied AI robotics breakthroughs this week"],
+      "enabled": true
+    },
+    {
+      "id": "google-news",
+      "name": "Google News",
+      "type": "google_news",
       "queries": [
-        "latest embodied AI robotics breakthroughs this week",
-        "humanoid robot companies latest news 2026"
+        "humanoid robot embodied AI 2026",
+        "人形机器人 具身智能",
+        "Boston Dynamics OR Figure AI OR Tesla Optimus robot"
+      ],
+      "max_items": 8,
+      "enabled": true
+    },
+    {
+      "id": "rss-feeds",
+      "name": "RSS 订阅",
+      "type": "rss",
+      "feeds": [
+        {"url": "https://rss.arxiv.org/rss/cs.RO", "name": "arXiv cs.RO", "max_items": 8, "keyword_filter": true},
+        {"url": "https://spectrum.ieee.org/feeds/topic/robotics.rss", "name": "IEEE Spectrum", "max_items": 5},
+        {"url": "https://www.therobotreport.com/feed/", "name": "The Robot Report", "max_items": 5}
       ],
       "enabled": true
     },
@@ -27,8 +43,8 @@
         {"url": "https://bostondynamics.com/blog/", "name": "Boston Dynamics"},
         {"url": "https://www.figure.ai/news", "name": "Figure AI"},
         {"url": "https://www.unitree.com/news/", "name": "Unitree 宇树"},
-        {"url": "https://www.ubtrobot.com/news/", "name": "UBTECH 优必选"},
-        {"url": "https://agility.ai/news", "name": "Agility Robotics"}
+        {"url": "https://www.1x.tech/news", "name": "1X Technologies"},
+        {"url": "https://sanctuary.ai/news/", "name": "Sanctuary AI"}
       ],
       "enabled": true
     },
@@ -44,7 +60,7 @@
       "id": "github-trending",
       "name": "GitHub Trending",
       "type": "github",
-      "queries": ["robotics", "embodied-ai", "humanoid-robot"],
+      "queries": ["robotics", "embodied-ai", "humanoid-robot", "robot-learning"],
       "enabled": true
     }
   ]
