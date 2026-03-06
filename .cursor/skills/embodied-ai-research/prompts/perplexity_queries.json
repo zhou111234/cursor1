@@ -1,0 +1,63 @@
+{
+  "_description": "Perplexity 具身智能热点搜索提示词库。按维度分类，每次抓取自动轮换使用。",
+  "_usage": "scrape_sources.py 的 fetch_perplexity() 函数会根据 config/sources.json 中的 query_sets 字段选取对应维度的提示词。",
+
+  "dimensions": {
+    "技术突破": {
+      "id": "tech_breakthrough",
+      "queries": [
+        "What are the most significant embodied AI and humanoid robot technical breakthroughs this week? Focus on locomotion, manipulation, perception, and foundation models. List 5 items with company names.",
+        "Latest SOTA results in robot learning: imitation learning, reinforcement learning, VLA (Vision-Language-Action) models, world models. What papers or demos were released this week?",
+        "本周具身智能领域有哪些重大技术突破？包括运动控制、灵巧操作、多模态感知、端到端学习等方向，列出具体公司和技术名称。"
+      ]
+    },
+    "产品发布": {
+      "id": "product_launch",
+      "queries": [
+        "What new humanoid robots or embodied AI products were announced or launched this week? Include Boston Dynamics, Figure AI, Tesla Optimus, Unitree, UBTECH, Agility Robotics, 1X Technologies, Sanctuary AI, and any Chinese robotics startups.",
+        "最近一周有哪些人形机器人或具身智能新产品发布？包括硬件、软件平台、开发工具、仿真环境等。"
+      ]
+    },
+    "投融资": {
+      "id": "funding",
+      "queries": [
+        "Latest funding rounds, acquisitions, and IPO news in humanoid robotics and embodied AI sector this month. Include deal sizes, investors, and company valuations.",
+        "具身智能和人形机器人领域最新的投融资事件，包括融资金额、投资方、估值变化。"
+      ]
+    },
+    "产业落地": {
+      "id": "industry_deployment",
+      "queries": [
+        "Real-world deployments of humanoid robots and embodied AI systems this week: manufacturing, logistics, healthcare, household, construction. Which companies deployed where?",
+        "人形机器人在工业制造、物流仓储、医疗康养、家庭服务等场景的最新落地案例，包括具体客户和效果数据。"
+      ]
+    },
+    "政策法规": {
+      "id": "policy",
+      "queries": [
+        "Latest government policies, regulations, and standards related to humanoid robots and embodied AI in China, US, EU, Japan, and South Korea.",
+        "各国关于具身智能和人形机器人的最新政策、法规、标准、产业规划有哪些更新？"
+      ]
+    },
+    "开源生态": {
+      "id": "open_source",
+      "queries": [
+        "Most important open-source releases in robotics and embodied AI this week: new models on HuggingFace, new frameworks on GitHub, new datasets, new simulation environments like Isaac Sim, MuJoCo, SAPIEN.",
+        "本周具身智能开源生态有哪些重要更新？包括新模型、新框架、新数据集、新仿真工具。"
+      ]
+    },
+    "学术前沿": {
+      "id": "academic",
+      "queries": [
+        "Top 5 most cited or discussed embodied AI papers this week from arXiv, ICRA, CoRL, RSS, NeurIPS, CVPR. Focus on manipulation, locomotion, sim-to-real transfer, and foundation models for robotics.",
+        "本周具身智能领域最受关注的学术论文，包括机器人操作、运动规划、仿真迁移、机器人基础模型等方向。"
+      ]
+    }
+  },
+
+  "meta_prompts": {
+    "daily_digest": "You are an embodied AI industry analyst. Search for today's most important news across: technical breakthroughs, product launches, funding, real-world deployments, policy updates, and open-source releases in humanoid robotics and embodied AI. Return exactly 8 items. Each must include a specific company name or technology name. Output as JSON array with 'title' and 'summary' fields.",
+    "weekly_roundup": "Summarize this week's top 10 developments in embodied AI and humanoid robotics. Cover: (1) major product announcements, (2) technical milestones, (3) funding events, (4) policy changes, (5) notable open-source releases. Be specific with names, numbers, and dates.",
+    "trend_analysis": "What are the 3 emerging trends in embodied AI that became clearer this week? For each trend, provide: the trend name, 2-3 supporting data points from this week's news, and a brief analysis of why it matters for the industry."
+  }
+}

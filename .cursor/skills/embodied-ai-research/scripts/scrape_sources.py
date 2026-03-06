@@ -372,41 +372,73 @@ def fetch_huggingface(max_models: int = 5, max_papers: int = 5) -> list[dict]:
     return items
 
 
-def fetch_perplexity(queries: list[str]) -> list[dict]:
-    """通过 Perplexity Sonar API 或 DashScope 联网搜索获取最新资讯。"""
-    api_key = os.environ.get("PERPLEXITY_API_KEY")
+def _load_perplexity_prompts(project_root: Path) -> dict:
+    """加载 Perplexity 提示词库。"""
+    prompt_file = project_root / ".cursor" / "skills" / "embodied-ai-research" / "prompts" / "perplexity_queries.json"
+    if prompt_file.exists():
+        with open(prompt_file, encoding="utf-8") as f:
+            return json.load(f)
+    return {}
+
+
+def fetch_perplexity(queries: list[str], query_sets: list[str] = None,
+                     project_root: Path = None) -> list[dict]:
+    """通过 Perplexity Sonar API 或 DashScope 联网搜索获取最新资讯。
+    支持从提示词库中按维度选取 query。"""
     items = []
+
+    if project_root and query_sets:
+        prompt_lib = _load_perplexity_prompts(project_root)
+        dims = prompt_lib.get("dimensions", {})
+        meta = prompt_lib.get("meta_prompts", {})
+        actual_queries = []
+        for qs in query_sets:
+            if qs in meta:
+                actual_queries.append(meta[qs])
+            else:
+                for dim_name, dim_data in dims.items():
+                    if dim_data.get("id") == qs or dim_name == qs:
+                        actual_queries.extend(dim_data.get("queries", [])[:1])
+                        break
+        if actual_queries:
+            queries = actual_queries
+
+    api_key = os.environ.get("PERPLEXITY_API_KEY")
+
+    def _parse_and_collect(content: str, source_tag: str = "Perplexity AI"):
+        match = re.search(r"\[.*\]", content, re.DOTALL)
+        if match:
+            try:
+                for t in json.loads(match.group()):
+                    if t.get("title"):
+                        items.append({
+                            "title": t["title"][:200],
+                            "summary": t.get("summary", t["title"])[:300],
+                            "source": source_tag,
+                            "url": "", "image_urls": [], "video_urls": [],
+                            "published_at": datetime.now(timezone.utc).isoformat(),
+                        })
+            except json.JSONDecodeError:
+                pass
 
     if api_key:
         for q in queries:
             try:
+                prompt = (
+                    f"{q}\n\nReturn results as a JSON array. "
+                    f"Each element must have 'title' (string) and 'summary' (string) fields only. "
+                    f"No other text outside the JSON array."
+                )
                 r = requests.post(
                     "https://api.perplexity.ai/chat/completions",
                     headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-                    json={
-                        "model": "sonar",
-                        "messages": [{"role": "user", "content":
-                            f"List the 5 most important {q}. "
-                            f"For each, give title and one-sentence summary. "
-                            f"Output as JSON array with 'title' and 'summary' fields only."}],
-                    },
+                    json={"model": "sonar", "messages": [{"role": "user", "content": prompt}]},
                     timeout=30,
                 )
                 r.raise_for_status()
-                content = r.json()["choices"][0]["message"]["content"]
-                match = re.search(r"\[.*\]", content, re.DOTALL)
-                if match:
-                    for t in json.loads(match.group()):
-                        if t.get("title"):
-                            items.append({
-                                "title": t["title"][:200],
-                                "summary": t.get("summary", t["title"])[:300],
-                                "source": "Perplexity AI",
-                                "url": "", "image_urls": [], "video_urls": [],
-                                "published_at": datetime.now(timezone.utc).isoformat(),
-                            })
+                _parse_and_collect(r.json()["choices"][0]["message"]["content"])
             except Exception as e:
-                print(f"  Perplexity query failed ({q[:20]}): {e}", file=sys.stderr)
+                print(f"  Perplexity query failed ({q[:30]}): {e}", file=sys.stderr)
     else:
         ds_key = os.environ.get("DASHSCOPE_API_KEY")
         if not ds_key:
@@ -414,32 +446,24 @@ def fetch_perplexity(queries: list[str]) -> list[dict]:
             return items
         try:
             from dashscope import Generation
-            combined_q = "；".join(queries)
-            rsp = Generation.call(
-                model="qwen-plus", api_key=ds_key,
-                messages=[{"role": "user", "content":
-                    f"你是具身智能行业研究员。请搜索并列出今天最重要的具身智能/机器人新闻，"
-                    f"搜索方向：{combined_q}。列出8条，每条包含具体公司名或技术名。"
-                    f'严格输出JSON数组，字段: "title", "summary"。'}],
-                result_format="message",
-                enable_search=True,
-            )
-            if rsp.status_code == 200:
-                content = rsp.output.choices[0].message.content.strip()
-                if content.startswith("```"):
-                    content = re.sub(r"^```(?:json)?\s*", "", content)
-                    content = re.sub(r"\s*```$", "", content)
-                match = re.search(r"\[.*\]", content, re.DOTALL)
-                if match:
-                    for t in json.loads(match.group()):
-                        if t.get("title"):
-                            items.append({
-                                "title": t["title"][:200],
-                                "summary": t.get("summary", t["title"])[:300],
-                                "source": "Perplexity AI",
-                                "url": "", "image_urls": [], "video_urls": [],
-                                "published_at": datetime.now(timezone.utc).isoformat(),
-                            })
+            for q in queries[:2]:
+                prompt = (
+                    f"你是具身智能行业研究员。{q}\n\n"
+                    f"列出5-8条结果，每条包含具体公司名或技术名。"
+                    f'严格输出JSON数组，字段: "title", "summary"。不要输出其他内容。'
+                )
+                rsp = Generation.call(
+                    model="qwen-plus", api_key=ds_key,
+                    messages=[{"role": "user", "content": prompt}],
+                    result_format="message",
+                    enable_search=True,
+                )
+                if rsp.status_code == 200:
+                    content = rsp.output.choices[0].message.content.strip()
+                    if content.startswith("```"):
+                        content = re.sub(r"^```(?:json)?\s*", "", content)
+                        content = re.sub(r"\s*```$", "", content)
+                    _parse_and_collect(content)
         except Exception as e:
             print(f"  Perplexity fallback failed: {e}", file=sys.stderr)
 
@@ -526,8 +550,10 @@ def main():
 
         if source_type == "perplexity":
             queries = src.get("queries", ["latest embodied AI news"])
+            query_sets = src.get("query_sets", None)
             print(f"  Perplexity: 搜索最新资讯...", file=sys.stderr)
-            px_items = fetch_perplexity(queries)
+            px_items = fetch_perplexity(queries, query_sets=query_sets,
+                                         project_root=project_root)
             all_items.extend(px_items)
             continue
 
