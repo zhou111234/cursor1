@@ -15,9 +15,12 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
+import re
+
 WIDTH, HEIGHT = 720, 1280
 FPS = 25
 FONT = "/usr/share/fonts/truetype/wqy/wqy-microhei.ttc"
+YT_DLP = shutil.which("yt-dlp") or str(Path.home() / ".local/bin/yt-dlp")
 
 # 颜色体系
 C_BG = "0x06080f"        # 深空黑
@@ -54,6 +57,35 @@ def _wrap(t: str, n: int = 16) -> str:
     if t:
         lines.append(t)
     return "\n".join(lines)
+
+
+def search_video_clip(title: str, output_path: str, max_duration: int = 15) -> bool:
+    """从 Bilibili 搜索与新闻标题匹配的视频切片。"""
+    env = os.environ.copy()
+    env["PATH"] = str(Path.home() / ".deno/bin") + ":" + str(Path.home() / ".local/bin") + ":" + env.get("PATH", "")
+
+    clean = re.sub(r"[|｜\[\]【】（）()：:,，。.!！?？\"'""''⭐0-9K]", " ", title)
+    clean = re.sub(r"\s+", " ", clean).strip()
+    keywords = [w for w in clean.split() if len(w) >= 2][:4]
+    query = " ".join(keywords) if keywords else clean[:20]
+
+    searches = [
+        f"bilisearch1:{query}",
+        f"bilisearch1:{' '.join(keywords[:2])} 机器人" if len(keywords) >= 2 else f"bilisearch1:{query} 机器人",
+    ]
+    for src in searches:
+        try:
+            subprocess.run(
+                [YT_DLP, "--download-sections", f"*0-{max_duration}",
+                 "--max-downloads", "1", "--no-playlist",
+                 "-o", output_path, src],
+                capture_output=True, text=True, timeout=20, env=env,
+            )
+            if Path(output_path).exists() and Path(output_path).stat().st_size > 10000:
+                return True
+        except Exception:
+            pass
+    return False
 
 
 def _hud_base(dur: float) -> str:
@@ -120,8 +152,9 @@ def generate_intel_card(
     output: str, index: int, title: str, source: str,
     image_path: Optional[str] = None, duration: float = 6.0,
     audio_path: Optional[str] = None,
+    video_clip_path: Optional[str] = None,
 ) -> bool:
-    """情报卡片：HUD 数据面板 + 配图/实拍 + 标题 + 来源 + 配音。"""
+    """情报卡片：实拍视频切片/配图 + HUD叠加 + 标题 + 来源 + 配音。"""
     fa = _fa()
 
     has_audio = audio_path and Path(audio_path).exists()
@@ -135,6 +168,8 @@ def generate_intel_card(
             duration = max(duration, audio_dur + 0.5)
         except (ValueError, AttributeError):
             has_audio = False
+
+    has_clip = video_clip_path and Path(video_clip_path).exists()
     wrapped = _wrap(title, n=16)
     e_title = _esc(wrapped)
     e_src = _esc(source[:30])
@@ -143,17 +178,39 @@ def generate_intel_card(
 
     panel_y = 56
     panel_h = HEIGHT - 56 - 48
-    img_area_h = 400
-    text_y = panel_y + img_area_h + 30
+    text_y = panel_y + 80
 
-    if image_path and Path(image_path).exists():
+    if has_clip:
+        input_args = ["-i", video_clip_path]
+        img_filters = [
+            (
+                f"[0:v]scale={WIDTH}:{HEIGHT}:force_original_aspect_ratio=increase,"
+                f"crop={WIDTH}:{HEIGHT},"
+                f"eq=brightness=-0.25:saturation=0.7[_clipbg]"
+            ),
+            f"color=c={C_DIM}:s={WIDTH}x52:d={duration}:r={FPS}[_topbar]",
+            f"[_clipbg][_topbar]overlay=0:0[_b1]",
+            f"color=c={C_CYAN}:s={WIDTH}x2:d={duration}:r={FPS}[_topline]",
+            f"[_b1][_topline]overlay=0:52[_b2]",
+            f"color=c={C_DIM}:s={WIDTH}x44:d={duration}:r={FPS}[_botbar]",
+            f"[_b2][_botbar]overlay=0:{HEIGHT - 44}[_b3]",
+            f"color=c={C_CYAN}:s={WIDTH}x2:d={duration}:r={FPS}[_botline]",
+            f"[_b3][_botline]overlay=0:{HEIGHT - 44}[_b4]",
+            f"[_b4]drawtext={fa}:text='NEXUS':fontsize=20:fontcolor={C_CYAN}:x=16:y=16[_b5]",
+            f"[_b5]drawtext={fa}:text='SIGNAL ACTIVE':fontsize=14:fontcolor={C_CYAN}:"
+            f"x=16:y={HEIGHT - 34}[_base]",
+            f"color=c={C_CYAN}:s=3x{panel_h}:d={duration}:r={FPS}[_vline]",
+            f"[_base][_vline]overlay=24:{panel_y}[_p3]",
+        ]
+        text_y = HEIGHT - 400
+    elif image_path and Path(image_path).exists():
+        img_area_h = 400
+        text_y = panel_y + img_area_h + 30
         input_args = ["-f", "lavfi", "-i", "nullsrc=s=1x1:d=0.01", "-i", image_path]
         img_filters = [
             _hud_base(duration),
-            # 左侧青色竖线
             f"color=c={C_CYAN}:s=3x{panel_h}:d={duration}:r={FPS}[_vline]",
             f"[_base][_vline]overlay=24:{panel_y}[_p1]",
-            # 图片区域
             (
                 f"[1:v]scale=660:{img_area_h}:force_original_aspect_ratio=decrease,"
                 f"pad=660:{img_area_h}:(ow-iw)/2:(oh-ih)/2:color={C_BG}[_img]"
@@ -164,53 +221,74 @@ def generate_intel_card(
         ]
     else:
         input_args = ["-f", "lavfi", "-i", "nullsrc=s=1x1:d=0.01"]
-        text_y = panel_y + 80
         img_filters = [
             _hud_base(duration),
             f"color=c={C_CYAN}:s=3x{panel_h}:d={duration}:r={FPS}[_vline]",
             f"[_base][_vline]overlay=24:{panel_y}[_p3]",
         ]
 
-    text_filters = [
-        # 索引编号
-        (
-            f"[_p3]drawtext={fa}:text='{e_idx}':"
-            f"fontsize=18:fontcolor={C_ORANGE}:"
-            f"x=40:y={panel_y+10}:"
-            f"enable='gte(t,0.15)'[_t1]"
-        ),
-        # 主标题
-        (
-            f"[_t1]drawtext={fa}:text='{e_title}':"
-            f"fontsize=38:fontcolor={C_TEXT}:"
-            f"line_spacing=10:"
-            f"x=40:y={text_y}:"
-            f"enable='gte(t,0.4)'[_t2]"
-        ),
-        # 分隔线
-        f"color=c={C_CYAN}:s=200x2:d={duration}:r={FPS}[_sep]",
-        f"[_t2][_sep]overlay=40:{text_y + 200}[_t3]",
-        # 来源标签
-        (
-            f"[_t3]drawtext={fa}:text='SOURCE':"
-            f"fontsize=14:fontcolor={C_CYAN}:"
-            f"x=40:y={text_y+220}:"
-            f"enable='gte(t,0.6)'[_t4]"
-        ),
-        (
-            f"[_t4]drawtext={fa}:text='{e_src}':"
-            f"fontsize=18:fontcolor={C_MUTED}:"
-            f"x=150:y={text_y+218}:"
-            f"enable='gte(t,0.6)'[_t5]"
-        ),
-        # 底部品牌
-        (
-            f"[_t5]drawtext={fa}:text='@具身智能 NEXUS':"
-            f"fontsize=14:fontcolor={C_CYAN}@0.5:"
-            f"x={WIDTH}-text_w-16:y={HEIGHT-34}:"
-            f"enable='gte(t,0.3)'[out]"
-        ),
-    ]
+    if has_clip:
+        text_filters = [
+            (
+                f"[_p3]drawbox=x=0:y={HEIGHT - 394}:w={WIDTH}:h=350:"
+                f"color=0x000000@0.6:t=fill[_tb1]"
+            ),
+            (
+                f"[_tb1]drawtext={fa}:text='{e_idx}':"
+                f"fontsize=18:fontcolor={C_ORANGE}:"
+                f"x=40:y={panel_y + 10}:"
+                f"enable='gte(t,0.15)'[_t1]"
+            ),
+            (
+                f"[_t1]drawtext={fa}:text='{e_title}':"
+                f"fontsize=40:fontcolor=white:"
+                f"line_spacing=12:"
+                f"x=40:y={HEIGHT - 370}:"
+                f"enable='gte(t,0.3)'[_t2]"
+            ),
+            (
+                f"[_t2]drawtext={fa}:text='{e_src}':"
+                f"fontsize=20:fontcolor={C_MUTED}:"
+                f"x=40:y={HEIGHT - 100}:"
+                f"enable='gte(t,0.5)'[_t3]"
+            ),
+            (
+                f"[_t3]drawtext={fa}:text='@具身智能 NEXUS':"
+                f"fontsize=14:fontcolor={C_CYAN}:"
+                f"x={WIDTH}-text_w-16:y={HEIGHT - 34}:"
+                f"enable='gte(t,0.3)'[out]"
+            ),
+        ]
+    else:
+        text_filters = [
+            (
+                f"[_p3]drawtext={fa}:text='{e_idx}':"
+                f"fontsize=18:fontcolor={C_ORANGE}:"
+                f"x=40:y={panel_y + 10}:"
+                f"enable='gte(t,0.15)'[_t1]"
+            ),
+            (
+                f"[_t1]drawtext={fa}:text='{e_title}':"
+                f"fontsize=38:fontcolor={C_TEXT}:"
+                f"line_spacing=10:"
+                f"x=40:y={text_y}:"
+                f"enable='gte(t,0.4)'[_t2]"
+            ),
+            f"color=c={C_CYAN}:s=200x2:d={duration}:r={FPS}[_sep]",
+            f"[_t2][_sep]overlay=40:{text_y + 200}[_t3]",
+            (
+                f"[_t3]drawtext={fa}:text='{e_src}':"
+                f"fontsize=18:fontcolor={C_MUTED}:"
+                f"x=40:y={text_y + 220}:"
+                f"enable='gte(t,0.6)'[_t4]"
+            ),
+            (
+                f"[_t4]drawtext={fa}:text='@具身智能 NEXUS':"
+                f"fontsize=14:fontcolor={C_CYAN}:"
+                f"x={WIDTH}-text_w-16:y={HEIGHT - 34}:"
+                f"enable='gte(t,0.3)'[out]"
+            ),
+        ]
 
     all_filters = img_filters + text_filters
 
@@ -371,10 +449,19 @@ def build_news_video(
             if audio and not Path(audio).exists():
                 audio = None
 
-            print(f"  生成情报卡片 {idx}/{len(items)}: {title[:30]}...", flush=True)
+            # 搜索与新闻匹配的视频切片
+            clip_path = str(wd / f"clip_{idx}.mp4")
+            print(f"  搜索视频切片 {idx}/{len(items)}: {title[:30]}...", flush=True)
+            clip_found = search_video_clip(title, clip_path, max_duration=15)
+            if clip_found:
+                print(f"    ✓ 找到匹配视频切片", flush=True)
+            else:
+                clip_path = None
+
+            print(f"  生成情报卡片 {idx}/{len(items)}...", flush=True)
             card = str(wd / f"card_{idx}.mp4")
             if not generate_intel_card(card, idx, title, source, image_path=img,
-                                       audio_path=audio):
+                                       audio_path=audio, video_clip_path=clip_path):
                 return False
             clips.append(card)
 
