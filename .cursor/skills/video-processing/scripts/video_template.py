@@ -119,9 +119,22 @@ def generate_boot(output: str, duration: float = 2.5) -> bool:
 def generate_intel_card(
     output: str, index: int, title: str, source: str,
     image_path: Optional[str] = None, duration: float = 6.0,
+    audio_path: Optional[str] = None,
 ) -> bool:
-    """情报卡片：HUD 数据面板 + 配图/实拍 + 标题 + 来源。"""
+    """情报卡片：HUD 数据面板 + 配图/实拍 + 标题 + 来源 + 配音。"""
     fa = _fa()
+
+    has_audio = audio_path and Path(audio_path).exists()
+    if has_audio:
+        aprobe = subprocess.run(
+            ["ffprobe", "-v", "quiet", "-show_entries", "format=duration",
+             "-of", "default=noprint_wrappers=1:nokey=1", audio_path],
+            capture_output=True, text=True)
+        try:
+            audio_dur = float(aprobe.stdout.strip())
+            duration = max(duration, audio_dur + 0.5)
+        except (ValueError, AttributeError):
+            has_audio = False
     wrapped = _wrap(title, n=16)
     e_title = _esc(wrapped)
     e_src = _esc(source[:30])
@@ -200,11 +213,24 @@ def generate_intel_card(
     ]
 
     all_filters = img_filters + text_filters
-    return _ff(input_args + [
-        "-filter_complex", ";".join(all_filters),
-        "-map", "[out]", "-t", str(duration),
-        "-c:v", "libx264", "-pix_fmt", "yuv420p", "-r", str(FPS), output,
-    ], f"intel_{index}")
+
+    if has_audio:
+        input_args.extend(["-i", audio_path])
+        audio_idx = len([a for a in input_args if a == "-i"]) - 1
+        cmd = input_args + [
+            "-filter_complex", ";".join(all_filters),
+            "-map", "[out]", "-map", f"{audio_idx}:a",
+            "-c:a", "aac", "-b:a", "128k",
+            "-t", str(duration), "-shortest",
+            "-c:v", "libx264", "-pix_fmt", "yuv420p", "-r", str(FPS), output,
+        ]
+    else:
+        cmd = input_args + [
+            "-filter_complex", ";".join(all_filters),
+            "-map", "[out]", "-t", str(duration),
+            "-c:v", "libx264", "-pix_fmt", "yuv420p", "-r", str(FPS), output,
+        ]
+    return _ff(cmd, f"intel_{index}")
 
 
 def generate_shutdown(output: str, items: list[dict], duration: float = 3.0) -> bool:
@@ -339,9 +365,14 @@ def build_news_video(
                 if img_file.exists():
                     img = str(img_file)
 
+            audio = item.get("narration_audio", "")
+            if audio and not Path(audio).exists():
+                audio = None
+
             print(f"  生成情报卡片 {idx}/{len(items)}: {title[:30]}...", flush=True)
             card = str(wd / f"card_{idx}.mp4")
-            if not generate_intel_card(card, idx, title, source, image_path=img):
+            if not generate_intel_card(card, idx, title, source, image_path=img,
+                                       audio_path=audio):
                 return False
             clips.append(card)
 

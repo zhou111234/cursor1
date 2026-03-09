@@ -58,6 +58,31 @@ def stage_report(all_items: list[dict], scraped_file: Path) -> Path | None:
     return None
 
 
+def stage_narration(items: list[dict], drafts: Path) -> list[dict]:
+    """阶段2a: 生成演讲稿 + TTS 配音。"""
+    print(f"\n=== 阶段2a: 生成演讲稿 + 配音 ({len(items)} 条) ===")
+    narration_dir = drafts / "narrations"
+    items_file = drafts / "narration_input.json"
+    with open(items_file, "w", encoding="utf-8") as f:
+        json.dump(items, f, ensure_ascii=False, indent=2)
+
+    r = subprocess.run(
+        [sys.executable, "scripts/narration_engine.py", str(items_file),
+         "--output-dir", str(narration_dir)],
+        cwd=PROJECT_ROOT, capture_output=True, text=True,
+    )
+    if r.stderr:
+        print(r.stderr.strip(), file=sys.stderr)
+    if r.stdout:
+        print(r.stdout.strip())
+
+    enhanced_file = narration_dir / "enhanced_items.json"
+    if enhanced_file.exists():
+        with open(enhanced_file, encoding="utf-8") as f:
+            return json.load(f)
+    return items
+
+
 def stage_generate_images(items: list[dict], drafts: Path) -> Path:
     img_dir = drafts / "illustrations"
     img_dir.mkdir(parents=True, exist_ok=True)
@@ -152,13 +177,15 @@ def main():
     drafts = PROJECT_ROOT / "outputs" / "drafts"
     drafts.mkdir(parents=True, exist_ok=True)
 
+    narrated_items = stage_narration(video_items, drafts)
+
     if realvideo_mode:
-        out = stage_realvideo(video_items, drafts)
+        out = stage_realvideo(narrated_items, drafts)
     elif legacy_mode:
-        out = stage_legacy(video_items, drafts)
+        out = stage_legacy(narrated_items, drafts)
     else:
-        img_dir = stage_generate_images(video_items, drafts)
-        out = stage_video_template(video_items, img_dir, drafts)
+        img_dir = stage_generate_images(narrated_items, drafts)
+        out = stage_video_template(narrated_items, img_dir, drafts)
 
     if out:
         print(f"\n完成: {out}")
