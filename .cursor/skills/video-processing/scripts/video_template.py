@@ -286,55 +286,57 @@ def generate_shutdown(output: str, items: list[dict], duration: float = 3.0) -> 
     ], "shutdown")
 
 
-def compose_with_transitions(
-    clips: list[str], output: str,
-    transition: str = "fadeblack", trans_duration: float = 0.4,
-) -> bool:
+def compose_clips(clips: list[str], output: str) -> bool:
+    """合并多个片段，保留音频轨道。无音频的片段自动补静音。"""
     if not clips:
         return False
     if len(clips) == 1:
         shutil.copy(clips[0], output)
         return True
 
-    durations = []
-    for c in clips:
-        probe = subprocess.run(
-            ["ffprobe", "-v", "quiet", "-show_entries", "format=duration",
-             "-of", "default=noprint_wrappers=1:nokey=1", c],
-            capture_output=True, text=True)
-        durations.append(float(probe.stdout.strip()))
+    import tempfile
+    with tempfile.TemporaryDirectory() as td:
+        normalized = []
+        for i, c in enumerate(clips):
+            probe = subprocess.run(
+                ["ffprobe", "-v", "quiet", "-show_entries", "stream=codec_type",
+                 "-of", "csv=p=0", c], capture_output=True, text=True)
+            has_audio = "audio" in probe.stdout
 
-    inputs = []
-    for c in clips:
-        inputs.extend(["-i", c])
+            norm_path = os.path.join(td, f"norm_{i}.mp4")
+            if has_audio:
+                ok = _ff([
+                    "-i", c,
+                    "-c:v", "libx264", "-pix_fmt", "yuv420p",
+                    "-c:a", "aac", "-b:a", "128k", "-ar", "44100", "-ac", "1",
+                    "-r", str(FPS), norm_path,
+                ], f"norm_{i}")
+            else:
+                dur_probe = subprocess.run(
+                    ["ffprobe", "-v", "quiet", "-show_entries", "format=duration",
+                     "-of", "default=noprint_wrappers=1:nokey=1", c],
+                    capture_output=True, text=True)
+                dur = dur_probe.stdout.strip() or "5"
+                ok = _ff([
+                    "-i", c,
+                    "-f", "lavfi", "-i", f"anullsrc=r=44100:cl=mono:d={dur}",
+                    "-c:v", "libx264", "-pix_fmt", "yuv420p",
+                    "-c:a", "aac", "-b:a", "128k",
+                    "-r", str(FPS), "-shortest", norm_path,
+                ], f"norm_silent_{i}")
+            if not ok:
+                return False
+            normalized.append(norm_path)
 
-    filter_parts = []
-    offsets = []
-    cum = 0.0
-    for i, d in enumerate(durations):
-        cum = (d - trans_duration) if i == 0 else cum + d - trans_duration
-        offsets.append(cum)
+        concat_file = os.path.join(td, "concat.txt")
+        with open(concat_file, "w") as f:
+            for p in normalized:
+                f.write(f"file '{p}'\n")
 
-    if len(clips) == 2:
-        filter_parts.append(
-            f"[0:v][1:v]xfade=transition={transition}:"
-            f"duration={trans_duration}:offset={offsets[0]}[out]"
-        )
-    else:
-        prev = "[0:v]"
-        for i in range(1, len(clips)):
-            out_label = "[out]" if i == len(clips) - 1 else f"[v{i}]"
-            filter_parts.append(
-                f"{prev}[{i}:v]xfade=transition={transition}:"
-                f"duration={trans_duration}:offset={offsets[i-1]}{out_label}"
-            )
-            prev = out_label if i < len(clips) - 1 else ""
-
-    return _ff(inputs + [
-        "-filter_complex", ";".join(filter_parts),
-        "-map", "[out]",
-        "-c:v", "libx264", "-pix_fmt", "yuv420p", "-r", str(FPS), output,
-    ], "compose")
+        return _ff([
+            "-f", "concat", "-safe", "0", "-i", concat_file,
+            "-c", "copy", output,
+        ], "concat_final")
 
 
 def build_news_video(
@@ -384,7 +386,7 @@ def build_news_video(
 
         print(f"  合成视频 ({len(clips)} 段)...", flush=True)
         Path(output).parent.mkdir(parents=True, exist_ok=True)
-        if not compose_with_transitions(clips, output):
+        if not compose_clips(clips, output):
             return False
 
     return True
