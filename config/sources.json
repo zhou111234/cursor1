@@ -1,66 +1,52 @@
 {
   "keywords": [
     "具身智能", "embodied AI", "人形机器人", "humanoid robot",
-    "机器人", "robotics", "dexterous", "manipulation"
+    "机器人", "robotics", "manipulation", "locomotion"
   ],
   "sources": [
     {
-      "id": "perplexity",
-      "name": "Perplexity AI",
-      "type": "perplexity",
-      "query_sets": ["daily_digest", "tech_breakthrough", "dexterous_hand_spec"],
-      "queries": ["latest embodied AI robotics breakthroughs this week"],
-      "enabled": true
-    },
-    {
-      "id": "google-news",
-      "name": "Google News",
-      "type": "google_news",
-      "queries": [
-        "humanoid robot embodied AI 2026",
-        "人形机器人 具身智能",
-        "Boston Dynamics OR Figure AI OR Tesla Optimus robot"
-      ],
-      "max_items": 8,
-      "enabled": true
-    },
-    {
-      "id": "rss-feeds",
-      "name": "RSS 订阅",
-      "type": "rss",
-      "feeds": [
-        {"url": "https://rss.arxiv.org/rss/cs.RO", "name": "arXiv cs.RO", "max_items": 8, "keyword_filter": true},
-        {"url": "https://spectrum.ieee.org/feeds/topic/robotics.rss", "name": "IEEE Spectrum", "max_items": 5},
-        {"url": "https://www.therobotreport.com/feed/", "name": "The Robot Report", "max_items": 5}
-      ],
-      "enabled": true
-    },
-    {
-      "id": "robot-companies",
-      "name": "机器人公司官网",
+      "id": "robot-companies-cn",
+      "name": "国内机器人公司",
       "type": "web",
       "urls": [
-        {"url": "https://bostondynamics.com/blog/", "name": "Boston Dynamics"},
-        {"url": "https://www.figure.ai/news", "name": "Figure AI"},
-        {"url": "https://www.unitree.com/news/", "name": "Unitree 宇树"},
-        {"url": "https://www.1x.tech/news", "name": "1X Technologies"},
-        {"url": "https://sanctuary.ai/news/", "name": "Sanctuary AI"}
+        {"url": "https://ai2robotics.com/news/", "name": "智平方 AIGS"},
+        {"url": "https://www.galbot.com/news", "name": "银河通用 Galbot"},
+        {"url": "https://www.unifolm.com/", "name": "宇树科技 Unitree"},
+        {"url": "https://www.agibot.com/news", "name": "智元机器人 Agibot"},
+        {"url": "https://www.robotera.com/news", "name": "星动纪元 Robot Era"}
       ],
       "enabled": true
     },
     {
-      "id": "huggingface",
-      "name": "HuggingFace",
-      "type": "huggingface",
-      "max_models": 5,
-      "max_papers": 5,
+      "id": "robot-companies-global",
+      "name": "海外机器人公司",
+      "type": "web",
+      "urls": [
+        {"url": "https://www.figure.ai/news", "name": "Figure AI"}
+      ],
       "enabled": true
     },
     {
-      "id": "github-trending",
-      "name": "GitHub Trending",
-      "type": "github",
-      "queries": ["robotics", "embodied-ai", "humanoid-robot", "robot-learning"],
+      "id": "musk-x",
+      "name": "马斯克 X (Tesla Bot)",
+      "type": "x_account",
+      "username": "elonmusk",
+      "keywords": ["robot", "Optimus", "Tesla Bot", "humanoid"],
+      "enabled": true
+    },
+    {
+      "id": "huggingface-orgs",
+      "name": "HuggingFace 指定组织",
+      "type": "huggingface_orgs",
+      "orgs": [
+        {"id": "nvidia", "name": "NVIDIA"},
+        {"id": "1x-technologies", "name": "1X Technologies"},
+        {"id": "Dexmal", "name": "Dexmal 德速科技"},
+        {"id": "spirit-ai", "name": "Spirit AI"},
+        {"id": "agibot-world", "name": "智元机器人 Agibot"},
+        {"id": "Qwen", "name": "阿里通义千问"}
+      ],
+      "max_per_org": 3,
       "enabled": true
     }
   ]

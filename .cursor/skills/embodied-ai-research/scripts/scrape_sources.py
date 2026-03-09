@@ -549,6 +549,86 @@ def fetch_robot_company_sites(sites: list[dict], keywords: list[str]) -> list[di
     return items
 
 
+def fetch_huggingface_orgs(orgs: list[dict], max_per_org: int = 3) -> list[dict]:
+    """从指定的 HuggingFace 组织获取最新模型。"""
+    items = []
+    for org in orgs:
+        org_id = org.get("id", "")
+        org_name = org.get("name", org_id)
+        if not org_id:
+            continue
+        try:
+            r = requests.get(
+                "https://huggingface.co/api/models",
+                params={"author": org_id, "sort": "lastModified", "direction": "-1",
+                        "limit": max_per_org},
+                timeout=10,
+            )
+            r.raise_for_status()
+            for m in r.json():
+                model_id = m.get("id", "")
+                if not model_id:
+                    continue
+                task = m.get("pipeline_tag", "")
+                downloads = m.get("downloads", 0)
+                likes = m.get("likes", 0)
+                dl_str = f"{downloads / 1000:.0f}K" if downloads >= 1000 else str(downloads)
+                last_mod = m.get("lastModified", "")[:10]
+
+                items.append({
+                    "title": f"[{org_name}] 模型更新: {model_id}",
+                    "summary": f"任务: {task} | 下载: {dl_str} | 点赞: {likes} | 更新: {last_mod}",
+                    "source": f"HuggingFace | {org_name}",
+                    "url": f"https://huggingface.co/{model_id}",
+                    "image_urls": [], "video_urls": [],
+                    "published_at": datetime.now(timezone.utc).isoformat(),
+                })
+        except Exception as e:
+            print(f"  HF org {org_id} failed: {e}", file=sys.stderr)
+    return items
+
+
+def fetch_x_account(username: str, keywords: list[str] = None) -> list[dict]:
+    """从 X(Twitter) 获取指定用户的最新动态（通过 Nitter 或 DashScope 搜索）。"""
+    items = []
+    ds_key = os.environ.get("DASHSCOPE_API_KEY")
+    if not ds_key:
+        return items
+
+    kw_str = ", ".join(keywords) if keywords else "robot, humanoid"
+    try:
+        from dashscope import Generation
+        rsp = Generation.call(
+            model="qwen-plus", api_key=ds_key,
+            messages=[{"role": "user", "content":
+                f"搜索 X(Twitter) 用户 @{username} 最近7天关于 {kw_str} 的推文。"
+                f"列出3-5条最重要的，每条包含具体内容。"
+                f'严格输出JSON数组，字段: "title"(推文摘要), "summary"(详细内容)。不要输出其他内容。'}],
+            result_format="message",
+            enable_search=True,
+        )
+        if rsp.status_code == 200:
+            content = rsp.output.choices[0].message.content.strip()
+            if content.startswith("```"):
+                content = re.sub(r"^```(?:json)?\s*", "", content)
+                content = re.sub(r"\s*```$", "", content)
+            match = re.search(r"\[.*\]", content, re.DOTALL)
+            if match:
+                for t in json.loads(match.group()):
+                    if t.get("title"):
+                        items.append({
+                            "title": t["title"][:200],
+                            "summary": t.get("summary", t["title"])[:300],
+                            "source": f"X @{username}",
+                            "url": f"https://x.com/{username}",
+                            "image_urls": [], "video_urls": [],
+                            "published_at": datetime.now(timezone.utc).isoformat(),
+                        })
+    except Exception as e:
+        print(f"  X @{username} fetch failed: {e}", file=sys.stderr)
+    return items
+
+
 def fetch_rss(url: str, source_name: str, max_items: int = 10, keywords: list[str] = None) -> list[dict]:
     """通用 RSS/Atom feed 抓取。"""
     items = []
@@ -627,6 +707,18 @@ def _dispatch_source(src: dict, keywords: list[str], project_root: Path) -> list
 
         if source_type == "github":
             return fetch_github_trending(src.get("queries", ["robotics"]))
+
+        if source_type == "huggingface_orgs":
+            return fetch_huggingface_orgs(
+                src.get("orgs", []),
+                max_per_org=src.get("max_per_org", 3),
+            )
+
+        if source_type == "x_account":
+            return fetch_x_account(
+                src.get("username", ""),
+                keywords=src.get("keywords"),
+            )
 
         if source_type == "huggingface":
             return fetch_huggingface(
