@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
 """
-NEXUS 情报终端 — 视频模板引擎 v4
-风格：赛博朋克 HUD + 极简数据面板 + 扫描线 + 打字机效果
-结构：系统启动(2s) → 情报卡片×N(每条6s) → 终端关闭(2s)
+视频模板引擎 v5 — 纯净版
+画面：全屏实拍视频切片 + 底部字幕，无其余装饰元素。
+音频：AI 配音同步。
+素材来源：Bilibili 搜索（yt-dlp）。
 """
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -15,20 +17,10 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-import re
-
 WIDTH, HEIGHT = 720, 1280
 FPS = 25
 FONT = "/usr/share/fonts/truetype/wqy/wqy-microhei.ttc"
 YT_DLP = shutil.which("yt-dlp") or str(Path.home() / ".local/bin/yt-dlp")
-
-# 颜色体系
-C_BG = "0x06080f"        # 深空黑
-C_CYAN = "0x00e5ff"      # HUD 青色
-C_ORANGE = "0xff6d00"    # 警报橙
-C_DIM = "0x1a2a3a"       # 暗灰蓝
-C_TEXT = "0xe0e8f0"      # 亮白灰
-C_MUTED = "0x607080"     # 暗文字
 
 
 def _ff(args: list[str], label: str = "") -> bool:
@@ -37,7 +29,7 @@ def _ff(args: list[str], label: str = "") -> bool:
         subprocess.run(cmd, check=True, capture_output=True)
         return True
     except subprocess.CalledProcessError as e:
-        print(f"  FFmpeg error ({label}): {e.stderr.decode()[-600:]}", file=sys.stderr)
+        print(f"  FFmpeg error ({label}): {e.stderr.decode()[-400:]}", file=sys.stderr)
         return False
 
 
@@ -49,7 +41,7 @@ def _esc(t: str) -> str:
     return t.replace("\\", "\\\\").replace(":", "\\:").replace("'", "\\'").replace('"', '\\"')
 
 
-def _wrap(t: str, n: int = 16) -> str:
+def _wrap(t: str, n: int = 18) -> str:
     lines = []
     while len(t) > n:
         lines.append(t[:n])
@@ -59,27 +51,55 @@ def _wrap(t: str, n: int = 16) -> str:
     return "\n".join(lines)
 
 
-def search_video_clip(title: str, output_path: str, max_duration: int = 15) -> bool:
-    """从 Bilibili 搜索与新闻标题匹配的视频切片。"""
+# ── 素材搜索 ──────────────────────────────────────────
+
+COMPANY_SEARCH_MAP = {
+    "Figure AI": "Figure AI 机器人", "Helix": "Figure AI Helix 机器人",
+    "NVIDIA": "NVIDIA AI 机器人", "nvidia": "NVIDIA AI 模型",
+    "Unitree": "宇树科技 机器人", "宇树": "宇树科技 机器人", "unifolm": "宇树科技",
+    "Agibot": "智元机器人", "智元": "智元机器人", "agibot": "智元机器人",
+    "智平方": "智平方 机器人", "AIGS": "智平方 AIGS 机器人",
+    "Galbot": "银河通用 机器人", "银河通用": "银河通用 机器人",
+    "Robot Era": "星动纪元 机器人", "星动纪元": "星动纪元 机器人",
+    "Tesla": "特斯拉 Optimus 机器人", "Optimus": "特斯拉 Optimus 机器人",
+    "elonmusk": "特斯拉 Optimus 机器人", "Musk": "特斯拉 Optimus",
+    "Dexmal": "德速科技 机器人", "1X": "1X Technologies NEO 机器人",
+    "Boston Dynamics": "波士顿动力 Atlas", "Qwen": "通义千问 大模型",
+    "Spirit": "Spirit AI 机器人",
+}
+
+
+def search_video_clip(title: str, source: str, output_path: str,
+                      max_duration: int = 12) -> bool:
+    """从 Bilibili 搜索匹配视频切片。根据公司名智能生成搜索词。"""
     env = os.environ.copy()
     env["PATH"] = str(Path.home() / ".deno/bin") + ":" + str(Path.home() / ".local/bin") + ":" + env.get("PATH", "")
 
-    clean = re.sub(r"[|｜\[\]【】（）()：:,，。.!！?？\"'""''⭐0-9K]", " ", title)
-    clean = re.sub(r"\s+", " ", clean).strip()
-    keywords = [w for w in clean.split() if len(w) >= 2][:4]
-    query = " ".join(keywords) if keywords else clean[:20]
+    queries = []
+    combined = title + " " + source
+    for key, search_term in COMPANY_SEARCH_MAP.items():
+        if key.lower() in combined.lower():
+            queries.append(search_term)
+            break
 
-    searches = [
-        f"bilisearch1:{query}",
-        f"bilisearch1:{' '.join(keywords[:2])} 机器人" if len(keywords) >= 2 else f"bilisearch1:{query} 机器人",
-    ]
-    for src in searches:
+    clean = re.sub(r"\[.*?\]|【.*?】|（.*?）|\(.*?\)", " ", title)
+    clean = re.sub(r"[|｜：:,，。.!！?？\"'⭐]", " ", clean)
+    clean = re.sub(r"\d{4}[年./-]\d{1,2}[月./-]?\d{0,2}[日]?", "", clean)
+    clean = re.sub(r"(模型更新|Document|Center|ICP|备案)", "", clean)
+    words = [w for w in re.sub(r"\s+", " ", clean).strip().split() if len(w) >= 2][:4]
+    if words:
+        queries.append(" ".join(words[:3]))
+
+    if not queries:
+        queries.append("人形机器人 最新")
+
+    for q in queries[:3]:
         try:
             subprocess.run(
                 [YT_DLP, "--download-sections", f"*0-{max_duration}",
                  "--max-downloads", "1", "--no-playlist",
-                 "-o", output_path, src],
-                capture_output=True, text=True, timeout=20, env=env,
+                 "-o", output_path, f"bilisearch1:{q}"],
+                capture_output=True, text=True, timeout=25, env=env,
             )
             if Path(output_path).exists() and Path(output_path).stat().st_size > 10000:
                 return True
@@ -88,73 +108,15 @@ def search_video_clip(title: str, output_path: str, max_duration: int = 15) -> b
     return False
 
 
-def _hud_base(dur: float) -> str:
-    """深空背景 + 顶部状态栏 + 底部数据条。"""
-    fa = _fa()
-    date_str = _esc(datetime.now().strftime("%Y.%m.%d"))
-    return (
-        f"color=c={C_BG}:s={WIDTH}x{HEIGHT}:d={dur}:r={FPS}[_bg0];"
-        f"color=c={C_DIM}:s={WIDTH}x52:d={dur}:r={FPS}[_topbar];"
-        f"[_bg0][_topbar]overlay=0:0[_b1];"
-        f"color=c={C_CYAN}:s={WIDTH}x2:d={dur}:r={FPS}[_topline];"
-        f"[_b1][_topline]overlay=0:52[_b2];"
-        f"color=c={C_DIM}:s={WIDTH}x44:d={dur}:r={FPS}[_botbar];"
-        f"[_b2][_botbar]overlay=0:{HEIGHT - 44}[_b3];"
-        f"color=c={C_CYAN}:s={WIDTH}x2:d={dur}:r={FPS}[_botline];"
-        f"[_b3][_botline]overlay=0:{HEIGHT - 44}[_b4];"
-        f"[_b4]drawtext={fa}:text='NEXUS':fontsize=20:fontcolor={C_CYAN}:x=16:y=16[_b5];"
-        f"[_b5]drawtext={fa}:text='{date_str}':fontsize=16:fontcolor={C_MUTED}:x={WIDTH}-text_w-16:y=20[_b6];"
-        f"[_b6]drawtext={fa}:text='SIGNAL ACTIVE':fontsize=14:fontcolor={C_CYAN}:"
-        f"x=16:y={HEIGHT - 34}[_base]"
-    )
+# ── 片段生成 ──────────────────────────────────────────
 
-
-def generate_boot(output: str, duration: float = 2.5) -> bool:
-    """系统启动画面。"""
-    fa = _fa()
-    filters = [
-        _hud_base(duration),
-        # 中央大 LOGO
-        (
-            f"[_base]drawtext={fa}:text='N E X U S':"
-            f"fontsize=64:fontcolor={C_CYAN}:"
-            f"x=(w-text_w)/2:y=(h-text_h)/2-100:"
-            f"enable='gte(t,0.3)'[t1]"
-        ),
-        (
-            f"[t1]drawtext={fa}:text='EMBODIED AI INTELLIGENCE':"
-            f"fontsize=20:fontcolor={C_MUTED}:"
-            f"x=(w-text_w)/2:y=(h)/2-20:"
-            f"enable='gte(t,0.6)'[t2]"
-        ),
-        (
-            f"[t2]drawtext={fa}:text='SYSTEM ONLINE':"
-            f"fontsize=22:fontcolor={C_ORANGE}:"
-            f"x=(w-text_w)/2:y=(h)/2+60:"
-            f"enable='gte(t,1.2)'[t3]"
-        ),
-        (
-            f"[t3]drawtext={fa}:text='正在加载今日情报...':"
-            f"fontsize=18:fontcolor={C_TEXT}@0.5:"
-            f"x=(w-text_w)/2:y=(h)/2+120:"
-            f"enable='gte(t,1.8)'[out]"
-        ),
-    ]
-    return _ff([
-        "-f", "lavfi", "-i", "nullsrc=s=1x1:d=0.01",
-        "-filter_complex", ";".join(filters),
-        "-map", "[out]", "-t", str(duration),
-        "-c:v", "libx264", "-pix_fmt", "yuv420p", "-r", str(FPS), output,
-    ], "boot")
-
-
-def generate_intel_card(
+def generate_segment(
     output: str, index: int, title: str, source: str,
-    image_path: Optional[str] = None, duration: float = 6.0,
+    video_clip: Optional[str] = None,
     audio_path: Optional[str] = None,
-    video_clip_path: Optional[str] = None,
+    duration: float = 8.0,
 ) -> bool:
-    """情报卡片：实拍视频切片/配图 + HUD叠加 + 标题 + 来源 + 配音。"""
+    """生成单条新闻片段：全屏实拍/纯色 + 底部字幕 + 配音。"""
     fa = _fa()
 
     has_audio = audio_path and Path(audio_path).exists()
@@ -164,215 +126,68 @@ def generate_intel_card(
              "-of", "default=noprint_wrappers=1:nokey=1", audio_path],
             capture_output=True, text=True)
         try:
-            audio_dur = float(aprobe.stdout.strip())
-            duration = max(duration, audio_dur + 0.5)
+            duration = max(duration, float(aprobe.stdout.strip()) + 0.5)
         except (ValueError, AttributeError):
             has_audio = False
 
-    has_clip = video_clip_path and Path(video_clip_path).exists()
-    wrapped = _wrap(title, n=16)
-    e_title = _esc(wrapped)
-    e_src = _esc(source[:30])
-    idx_str = f"INTEL-{index:03d}"
-    e_idx = _esc(idx_str)
-
-    panel_y = 56
-    panel_h = HEIGHT - 56 - 48
-    text_y = panel_y + 80
+    has_clip = video_clip and Path(video_clip).exists()
+    e_title = _esc(_wrap(title, n=18))
+    e_src = _esc(source[:35])
 
     if has_clip:
-        input_args = ["-i", video_clip_path]
-        img_filters = [
-            (
-                f"[0:v]scale={WIDTH}:{HEIGHT}:force_original_aspect_ratio=increase,"
-                f"crop={WIDTH}:{HEIGHT},"
-                f"eq=brightness=-0.25:saturation=0.7[_clipbg]"
-            ),
-            f"color=c={C_DIM}:s={WIDTH}x52:d={duration}:r={FPS}[_topbar]",
-            f"[_clipbg][_topbar]overlay=0:0[_b1]",
-            f"color=c={C_CYAN}:s={WIDTH}x2:d={duration}:r={FPS}[_topline]",
-            f"[_b1][_topline]overlay=0:52[_b2]",
-            f"color=c={C_DIM}:s={WIDTH}x44:d={duration}:r={FPS}[_botbar]",
-            f"[_b2][_botbar]overlay=0:{HEIGHT - 44}[_b3]",
-            f"color=c={C_CYAN}:s={WIDTH}x2:d={duration}:r={FPS}[_botline]",
-            f"[_b3][_botline]overlay=0:{HEIGHT - 44}[_b4]",
-            f"[_b4]drawtext={fa}:text='NEXUS':fontsize=20:fontcolor={C_CYAN}:x=16:y=16[_b5]",
-            f"[_b5]drawtext={fa}:text='SIGNAL ACTIVE':fontsize=14:fontcolor={C_CYAN}:"
-            f"x=16:y={HEIGHT - 34}[_base]",
-            f"color=c={C_CYAN}:s=3x{panel_h}:d={duration}:r={FPS}[_vline]",
-            f"[_base][_vline]overlay=24:{panel_y}[_p3]",
-        ]
-        text_y = HEIGHT - 400
-    elif image_path and Path(image_path).exists():
-        img_area_h = 400
-        text_y = panel_y + img_area_h + 30
-        input_args = ["-f", "lavfi", "-i", "nullsrc=s=1x1:d=0.01", "-i", image_path]
-        img_filters = [
-            _hud_base(duration),
-            f"color=c={C_CYAN}:s=3x{panel_h}:d={duration}:r={FPS}[_vline]",
-            f"[_base][_vline]overlay=24:{panel_y}[_p1]",
-            (
-                f"[1:v]scale=660:{img_area_h}:force_original_aspect_ratio=decrease,"
-                f"pad=660:{img_area_h}:(ow-iw)/2:(oh-ih)/2:color={C_BG}[_img]"
-            ),
-            f"color=c={C_CYAN}:s=664x{img_area_h + 4}:d={duration}:r={FPS}[_imgborder]",
-            f"[_p1][_imgborder]overlay=28:{panel_y+6}[_p2]",
-            f"[_p2][_img]overlay=30:{panel_y+8}[_p3]",
-        ]
+        input_args = ["-i", video_clip]
+        vf = (
+            f"[0:v]scale={WIDTH}:{HEIGHT}:force_original_aspect_ratio=increase,"
+            f"crop={WIDTH}:{HEIGHT}[_bg];"
+            f"[_bg]drawbox=x=0:y={HEIGHT-260}:w={WIDTH}:h=260:"
+            f"color=0x000000@0.55:t=fill[_d1];"
+            f"[_d1]drawtext={fa}:text='{e_title}':"
+            f"fontsize=36:fontcolor=white:line_spacing=10:"
+            f"x=30:y={HEIGHT-245}:enable='gte(t,0.2)'[_d2];"
+            f"[_d2]drawtext={fa}:text='{e_src}':"
+            f"fontsize=18:fontcolor=0xbbbbbb:"
+            f"x=30:y={HEIGHT-55}:enable='gte(t,0.4)'[out]"
+        )
     else:
         input_args = ["-f", "lavfi", "-i", "nullsrc=s=1x1:d=0.01"]
-        img_filters = [
-            _hud_base(duration),
-            f"color=c={C_CYAN}:s=3x{panel_h}:d={duration}:r={FPS}[_vline]",
-            f"[_base][_vline]overlay=24:{panel_y}[_p3]",
-        ]
-
-    if has_clip:
-        text_filters = [
-            (
-                f"[_p3]drawbox=x=0:y={HEIGHT - 394}:w={WIDTH}:h=350:"
-                f"color=0x000000@0.6:t=fill[_tb1]"
-            ),
-            (
-                f"[_tb1]drawtext={fa}:text='{e_idx}':"
-                f"fontsize=18:fontcolor={C_ORANGE}:"
-                f"x=40:y={panel_y + 10}:"
-                f"enable='gte(t,0.15)'[_t1]"
-            ),
-            (
-                f"[_t1]drawtext={fa}:text='{e_title}':"
-                f"fontsize=40:fontcolor=white:"
-                f"line_spacing=12:"
-                f"x=40:y={HEIGHT - 370}:"
-                f"enable='gte(t,0.3)'[_t2]"
-            ),
-            (
-                f"[_t2]drawtext={fa}:text='{e_src}':"
-                f"fontsize=20:fontcolor={C_MUTED}:"
-                f"x=40:y={HEIGHT - 100}:"
-                f"enable='gte(t,0.5)'[_t3]"
-            ),
-            (
-                f"[_t3]drawtext={fa}:text='@具身智能 NEXUS':"
-                f"fontsize=14:fontcolor={C_CYAN}:"
-                f"x={WIDTH}-text_w-16:y={HEIGHT - 34}:"
-                f"enable='gte(t,0.3)'[out]"
-            ),
-        ]
-    else:
-        text_filters = [
-            (
-                f"[_p3]drawtext={fa}:text='{e_idx}':"
-                f"fontsize=18:fontcolor={C_ORANGE}:"
-                f"x=40:y={panel_y + 10}:"
-                f"enable='gte(t,0.15)'[_t1]"
-            ),
-            (
-                f"[_t1]drawtext={fa}:text='{e_title}':"
-                f"fontsize=38:fontcolor={C_TEXT}:"
-                f"line_spacing=10:"
-                f"x=40:y={text_y}:"
-                f"enable='gte(t,0.4)'[_t2]"
-            ),
-            f"color=c={C_CYAN}:s=200x2:d={duration}:r={FPS}[_sep]",
-            f"[_t2][_sep]overlay=40:{text_y + 200}[_t3]",
-            (
-                f"[_t3]drawtext={fa}:text='{e_src}':"
-                f"fontsize=18:fontcolor={C_MUTED}:"
-                f"x=40:y={text_y + 220}:"
-                f"enable='gte(t,0.6)'[_t4]"
-            ),
-            (
-                f"[_t4]drawtext={fa}:text='@具身智能 NEXUS':"
-                f"fontsize=14:fontcolor={C_CYAN}:"
-                f"x={WIDTH}-text_w-16:y={HEIGHT - 34}:"
-                f"enable='gte(t,0.3)'[out]"
-            ),
-        ]
-
-    all_filters = img_filters + text_filters
+        vf = (
+            f"color=c=0x0a0a14:s={WIDTH}x{HEIGHT}:d={duration}:r={FPS}[_bg];"
+            f"[_bg]drawtext={fa}:text='{e_title}':"
+            f"fontsize=40:fontcolor=white:line_spacing=12:"
+            f"x=(w-text_w)/2:y=(h-text_h)/2-30[_d1];"
+            f"[_d1]drawtext={fa}:text='{e_src}':"
+            f"fontsize=20:fontcolor=0xaaaaaa:"
+            f"x=(w-text_w)/2:y=(h)/2+100[out]"
+        )
 
     if has_audio:
         input_args.extend(["-i", audio_path])
-        audio_idx = len([a for a in input_args if a == "-i"]) - 1
-        cmd = input_args + [
-            "-filter_complex", ";".join(all_filters),
-            "-map", "[out]", "-map", f"{audio_idx}:a",
+        aidx = len([a for a in input_args if a == "-i"]) - 1
+        return _ff(input_args + [
+            "-filter_complex", vf,
+            "-map", "[out]", "-map", f"{aidx}:a",
             "-c:a", "aac", "-b:a", "128k",
             "-t", str(duration), "-shortest",
             "-c:v", "libx264", "-pix_fmt", "yuv420p", "-r", str(FPS), output,
-        ]
+        ], f"seg_{index}")
     else:
-        cmd = input_args + [
-            "-filter_complex", ";".join(all_filters),
+        return _ff(input_args + [
+            "-filter_complex", vf,
             "-map", "[out]", "-t", str(duration),
             "-c:v", "libx264", "-pix_fmt", "yuv420p", "-r", str(FPS), output,
-        ]
-    return _ff(cmd, f"intel_{index}")
+        ], f"seg_{index}")
 
 
-def generate_shutdown(output: str, items: list[dict], duration: float = 3.0) -> bool:
-    """终端关闭 / 总结画面。"""
-    fa = _fa()
-
-    summary_lines = ""
-    for i, item in enumerate(items[:5]):
-        short = _esc(item.get("title", "")[:20])
-        summary_lines += f"▸ {short}\\n"
-
-    filters = [
-        _hud_base(duration),
-        (
-            f"[_base]drawtext={fa}:text='TODAY BRIEFING':"
-            f"fontsize=28:fontcolor={C_ORANGE}:"
-            f"x=(w-text_w)/2:y=100:"
-            f"enable='gte(t,0.2)'[s1]"
-        ),
-        (
-            f"[s1]drawtext={fa}:text='{summary_lines}':"
-            f"fontsize=22:fontcolor={C_TEXT}:"
-            f"line_spacing=16:"
-            f"x=60:y=200:"
-            f"enable='gte(t,0.4)'[s2]"
-        ),
-        f"color=c={C_CYAN}:s={WIDTH - 100}x2:d={duration}:r={FPS}[_div]",
-        f"[s2][_div]overlay=50:{HEIGHT-380}[s3]",
-        (
-            f"[s3]drawtext={fa}:text='关注 @具身智能':"
-            f"fontsize=36:fontcolor={C_CYAN}:"
-            f"x=(w-text_w)/2:y={HEIGHT-340}:"
-            f"enable='gte(t,0.8)'[s4]"
-        ),
-        (
-            f"[s4]drawtext={fa}:text='NEXUS 每日情报 关注 点赞 转发':"
-            f"fontsize=18:fontcolor={C_MUTED}:"
-            f"x=(w-text_w)/2:y={HEIGHT-280}:"
-            f"enable='gte(t,1.2)'[s5]"
-        ),
-        (
-            f"[s5]drawtext={fa}:text='SESSION ENDED':"
-            f"fontsize=20:fontcolor={C_ORANGE}@0.6:"
-            f"x=(w-text_w)/2:y={HEIGHT-200}:"
-            f"enable='gte(t,2.0)'[out]"
-        ),
-    ]
-    return _ff([
-        "-f", "lavfi", "-i", "nullsrc=s=1x1:d=0.01",
-        "-filter_complex", ";".join(filters),
-        "-map", "[out]", "-t", str(duration),
-        "-c:v", "libx264", "-pix_fmt", "yuv420p", "-r", str(FPS), output,
-    ], "shutdown")
-
+# ── 合并 ──────────────────────────────────────────────
 
 def compose_clips(clips: list[str], output: str) -> bool:
-    """合并多个片段，保留音频轨道。无音频的片段自动补静音。"""
+    """合并片段，保留音频。无音频片段补静音。"""
     if not clips:
         return False
     if len(clips) == 1:
         shutil.copy(clips[0], output)
         return True
 
-    import tempfile
     with tempfile.TemporaryDirectory() as td:
         normalized = []
         for i, c in enumerate(clips):
@@ -380,42 +195,34 @@ def compose_clips(clips: list[str], output: str) -> bool:
                 ["ffprobe", "-v", "quiet", "-show_entries", "stream=codec_type",
                  "-of", "csv=p=0", c], capture_output=True, text=True)
             has_audio = "audio" in probe.stdout
-
-            norm_path = os.path.join(td, f"norm_{i}.mp4")
+            norm = os.path.join(td, f"n_{i}.mp4")
             if has_audio:
-                ok = _ff([
-                    "-i", c,
-                    "-c:v", "libx264", "-pix_fmt", "yuv420p",
-                    "-c:a", "aac", "-b:a", "128k", "-ar", "44100", "-ac", "1",
-                    "-r", str(FPS), norm_path,
-                ], f"norm_{i}")
+                ok = _ff(["-i", c, "-c:v", "libx264", "-pix_fmt", "yuv420p",
+                          "-c:a", "aac", "-b:a", "128k", "-ar", "44100", "-ac", "1",
+                          "-r", str(FPS), norm], f"norm_{i}")
             else:
-                dur_probe = subprocess.run(
+                dur_p = subprocess.run(
                     ["ffprobe", "-v", "quiet", "-show_entries", "format=duration",
                      "-of", "default=noprint_wrappers=1:nokey=1", c],
                     capture_output=True, text=True)
-                dur = dur_probe.stdout.strip() or "5"
-                ok = _ff([
-                    "-i", c,
-                    "-f", "lavfi", "-i", f"anullsrc=r=44100:cl=mono:d={dur}",
-                    "-c:v", "libx264", "-pix_fmt", "yuv420p",
-                    "-c:a", "aac", "-b:a", "128k",
-                    "-r", str(FPS), "-shortest", norm_path,
-                ], f"norm_silent_{i}")
+                dur = dur_p.stdout.strip() or "5"
+                ok = _ff(["-i", c, "-f", "lavfi", "-i", f"anullsrc=r=44100:cl=mono:d={dur}",
+                          "-c:v", "libx264", "-pix_fmt", "yuv420p",
+                          "-c:a", "aac", "-b:a", "128k", "-r", str(FPS),
+                          "-shortest", norm], f"norm_s_{i}")
             if not ok:
                 return False
-            normalized.append(norm_path)
+            normalized.append(norm)
 
-        concat_file = os.path.join(td, "concat.txt")
+        concat_file = os.path.join(td, "list.txt")
         with open(concat_file, "w") as f:
             for p in normalized:
                 f.write(f"file '{p}'\n")
+        return _ff(["-f", "concat", "-safe", "0", "-i", concat_file,
+                     "-c", "copy", output], "concat")
 
-        return _ff([
-            "-f", "concat", "-safe", "0", "-i", concat_file,
-            "-c", "copy", output,
-        ], "concat_final")
 
+# ── 主流程 ──────────────────────────────────────────────
 
 def build_news_video(
     items: list[dict], output: str,
@@ -429,54 +236,40 @@ def build_news_video(
         wd = Path(wd)
         clips = []
 
-        print("  生成系统启动...", flush=True)
-        boot = str(wd / "boot.mp4")
-        if not generate_boot(boot):
-            return False
-        clips.append(boot)
-
         for i, item in enumerate(items):
             idx = i + 1
-            title = item.get("title", f"情报 {idx}")
-            source = item.get("source", "UNKNOWN")
-            img = None
-            if image_dir:
-                img_file = Path(image_dir) / f"illustration_{idx}.png"
-                if img_file.exists():
-                    img = str(img_file)
-
+            title = item.get("title", f"新闻 {idx}")
+            source = item.get("source", "")
             audio = item.get("narration_audio", "")
             if audio and not Path(audio).exists():
                 audio = None
 
-            # 搜索与新闻匹配的视频切片
+            # 搜索视频切片
             clip_path = str(wd / f"clip_{idx}.mp4")
-            print(f"  搜索视频切片 {idx}/{len(items)}: {title[:30]}...", flush=True)
-            clip_found = search_video_clip(title, clip_path, max_duration=15)
-            if clip_found:
-                print(f"    ✓ 找到匹配视频切片", flush=True)
-            else:
-                clip_path = None
+            print(f"  [{idx}/{len(items)}] 搜索视频: {title[:30]}...", flush=True)
+            found = search_video_clip(title, source, clip_path)
+            print(f"    {'✓ 找到' if found else '✗ 未找到，使用纯色背景'}", flush=True)
 
-            print(f"  生成情报卡片 {idx}/{len(items)}...", flush=True)
-            card = str(wd / f"card_{idx}.mp4")
-            if not generate_intel_card(card, idx, title, source, image_path=img,
-                                       audio_path=audio, video_clip_path=clip_path):
-                return False
-            clips.append(card)
+            img = None
+            if not found and image_dir:
+                img_file = Path(image_dir) / f"illustration_{idx}.png"
+                if img_file.exists():
+                    img = str(img_file)
+                    clip_path = None
 
-        print("  生成终端关闭...", flush=True)
-        shutdown = str(wd / "shutdown.mp4")
-        if not generate_shutdown(shutdown, items):
+            seg = str(wd / f"seg_{idx}.mp4")
+            if not generate_segment(seg, idx, title, source,
+                                    video_clip=clip_path if found else None,
+                                    audio_path=audio):
+                continue
+            clips.append(seg)
+
+        if not clips:
             return False
-        clips.append(shutdown)
 
-        print(f"  合成视频 ({len(clips)} 段)...", flush=True)
+        print(f"  合并 {len(clips)} 段...", flush=True)
         Path(output).parent.mkdir(parents=True, exist_ok=True)
-        if not compose_clips(clips, output):
-            return False
-
-    return True
+        return compose_clips(clips, output)
 
 
 def main():
@@ -503,7 +296,6 @@ def main():
     items = data if isinstance(data, list) else data.get("items", [])
 
     if not items:
-        print("No items found", file=sys.stderr)
         sys.exit(1)
 
     success = build_news_video(items[:5], output, image_dir=image_dir)
