@@ -54,46 +54,64 @@ def _wrap(t: str, n: int = 18) -> str:
 # ── 素材搜索 ──────────────────────────────────────────
 
 COMPANY_SEARCH_MAP = {
-    "Figure AI": "Figure AI 机器人", "Helix": "Figure AI Helix 机器人",
-    "NVIDIA": "NVIDIA AI 机器人", "nvidia": "NVIDIA AI 模型",
-    "Unitree": "宇树科技 机器人", "宇树": "宇树科技 机器人", "unifolm": "宇树科技",
-    "Agibot": "智元机器人", "智元": "智元机器人", "agibot": "智元机器人",
-    "智平方": "智平方 机器人", "AIGS": "智平方 AIGS 机器人",
-    "Galbot": "银河通用 机器人", "银河通用": "银河通用 机器人",
-    "Robot Era": "星动纪元 机器人", "星动纪元": "星动纪元 机器人",
-    "Tesla": "特斯拉 Optimus 机器人", "Optimus": "特斯拉 Optimus 机器人",
-    "elonmusk": "特斯拉 Optimus 机器人", "Musk": "特斯拉 Optimus",
-    "Dexmal": "德速科技 机器人", "1X": "1X Technologies NEO 机器人",
-    "Boston Dynamics": "波士顿动力 Atlas", "Qwen": "通义千问 大模型",
-    "Spirit": "Spirit AI 机器人",
+    "Figure AI": "Figure AI 机器人 发布会", "Helix": "Figure AI Helix 演示",
+    "NVIDIA": "NVIDIA 机器人 发布", "nvidia": "NVIDIA 发布会 AI",
+    "Unitree": "宇树科技 发布 机器人", "宇树": "宇树科技 发布会",
+    "unifolm": "宇树科技 采访",
+    "Agibot": "智元机器人 发布", "智元": "智元机器人 采访",
+    "agibot": "智元机器人 发布会",
+    "智平方": "智平方 采访 机器人", "AIGS": "智平方 AIGS 发布",
+    "Galbot": "银河通用 机器人 采访", "银河通用": "银河通用 发布会",
+    "Robot Era": "星动纪元 机器人 发布", "星动纪元": "星动纪元 采访",
+    "Tesla": "特斯拉 Optimus 发布会", "Optimus": "特斯拉 Optimus 演示",
+    "elonmusk": "马斯克 机器人 采访", "Musk": "马斯克 Optimus 发布",
+    "Dexmal": "德速科技 机器人 演示", "1X": "1X Technologies 机器人 演示",
+    "Boston Dynamics": "波士顿动力 Atlas 发布", "Qwen": "通义千问 发布会 模型",
+    "Spirit": "Spirit AI 机器人 演示",
 }
+
+MODEL_SEARCH_SUFFIX = ["发布会", "模型 介绍", "演示 测评"]
 
 
 def search_video_clip(title: str, source: str, output_path: str,
                       max_duration: int = 12) -> bool:
-    """从 Bilibili 搜索匹配视频切片。根据公司名智能生成搜索词。"""
+    """从 Bilibili 搜索采访/发布会/演示视频切片。"""
     env = os.environ.copy()
     env["PATH"] = str(Path.home() / ".deno/bin") + ":" + str(Path.home() / ".local/bin") + ":" + env.get("PATH", "")
 
     queries = []
     combined = title + " " + source
+
+    # 1) 公司名映射（已含"采访""发布会"等关键词）
     for key, search_term in COMPANY_SEARCH_MAP.items():
         if key.lower() in combined.lower():
             queries.append(search_term)
             break
 
+    # 2) 模型类新闻：追加模型名+发布会/测评搜索
+    is_model = any(kw in combined.lower() for kw in
+                   ["模型", "model", "huggingface", "hf论文", "sota"])
+    if is_model:
+        model_name = re.search(r"[\w/-]+/[\w.-]+", title)
+        if model_name:
+            short = model_name.group().split("/")[-1]
+            for suffix in MODEL_SEARCH_SUFFIX:
+                queries.append(f"{short} {suffix}")
+
+    # 3) 通用关键词 + "采访/演讲"后缀
     clean = re.sub(r"\[.*?\]|【.*?】|（.*?）|\(.*?\)", " ", title)
     clean = re.sub(r"[|｜：:,，。.!！?？\"'⭐]", " ", clean)
     clean = re.sub(r"\d{4}[年./-]\d{1,2}[月./-]?\d{0,2}[日]?", "", clean)
     clean = re.sub(r"(模型更新|Document|Center|ICP|备案)", "", clean)
-    words = [w for w in re.sub(r"\s+", " ", clean).strip().split() if len(w) >= 2][:4]
+    words = [w for w in re.sub(r"\s+", " ", clean).strip().split() if len(w) >= 2][:3]
     if words:
-        queries.append(" ".join(words[:3]))
+        queries.append(" ".join(words) + " 采访")
+        queries.append(" ".join(words) + " 发布")
 
     if not queries:
-        queries.append("人形机器人 最新")
+        queries.append("具身智能 机器人 采访")
 
-    for q in queries[:3]:
+    for q in queries[:4]:
         try:
             subprocess.run(
                 [YT_DLP, "--download-sections", f"*0-{max_duration}",

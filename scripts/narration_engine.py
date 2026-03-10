@@ -17,42 +17,85 @@ except ImportError:
     pass
 
 
+def _is_model_news(item: dict) -> bool:
+    """判断是否是模型相关新闻。"""
+    indicators = ["模型更新", "HuggingFace", "模型", "model", "SOTA",
+                  "benchmark", "榜单", "开源", "发布"]
+    combined = (item.get("title", "") + item.get("source", "")).lower()
+    return any(kw.lower() in combined for kw in indicators)
+
+
+def _research_model(item: dict, api_key: str) -> str:
+    """深度研究模型：调用 LLM 联网搜索榜单排名、亮点、与竞品对比。"""
+    title = item.get("title", "")
+    summary = item.get("summary", "")
+
+    try:
+        from dashscope import Generation
+        rsp = Generation.call(
+            model="qwen-plus", api_key=api_key,
+            messages=[{"role": "user", "content":
+                f"我需要为以下AI模型制作一条短视频。请帮我深度调研并回答：\n"
+                f"模型信息：{title}\n补充：{summary[:200]}\n\n"
+                f"请搜索并回答以下问题（用中文）：\n"
+                f"1. 这个模型在哪些榜单或基准测试上取得了最好成绩？（如MMLU、HumanEval、Arena等）具体排名和分数是多少？\n"
+                f"2. 相比同类竞品模型（如GPT-4、Claude、Llama、DeepSeek等），它的核心亮点和差异化优势是什么？\n"
+                f"3. 这个模型最适合的应用场景是什么？\n\n"
+                f"请用简洁的中文回答，每个问题2-3句话。如果找不到确切信息，请说明。"}],
+            result_format="message",
+            enable_search=True,
+        )
+        if rsp.status_code == 200:
+            return rsp.output.choices[0].message.content.strip()
+    except Exception as e:
+        print(f"    模型调研失败: {e}", file=sys.stderr)
+    return ""
+
+
 def write_narration(item: dict, index: int, total: int, api_key: str) -> str:
-    """为单条新闻生成演讲稿。"""
+    """为单条新闻生成演讲稿。模型类先做深度调研再写稿。"""
     title = item.get("title", "")
     summary = item.get("summary", "")
     source = item.get("source", "")
     method = item.get("method_summary", "")
     abstract = item.get("paper_abstract", "")
-    is_paper = "论文" in title or "HF论文" in title or bool(item.get("paper_url"))
 
-    if is_paper and (method or abstract):
+    from dashscope import Generation
+
+    is_model = _is_model_news(item)
+
+    if is_model:
+        print(f"    [调研] 搜索模型榜单和亮点...", file=sys.stderr)
+        research = _research_model(item, api_key)
+        if research:
+            print(f"    [调研] 获取到 {len(research)} 字分析", file=sys.stderr)
         prompt = (
-            f"你是科技短视频主播。请为以下AI论文写一段30-50字的解说词，"
-            f"用通俗的语言解释核心方法和创新点，适合短视频口播，语气自信、简洁。\n"
-            f"标题：{title}\n"
-            f"方法概要：{method or abstract[:200]}"
+            f"你是科技短视频主播。请根据以下模型信息和调研结果，写一段40-70字的解说词。\n"
+            f"要求：\n"
+            f"- 必须说清楚模型名称\n"
+            f"- 必须提到它在哪个榜单/领域取得最好成绩（如果有）\n"
+            f"- 必须说明相比其他模型的核心亮点\n"
+            f"- 语气自信专业，适合短视频配音\n\n"
+            f"模型信息：{title}\n补充：{summary[:200]}\n"
+            f"深度调研结果：\n{research[:500]}"
         )
-    elif "GitHub" in source:
+    elif abstract or method:
         prompt = (
-            f"你是科技短视频主播。请为以下开源项目写一段20-35字的解说词，"
-            f"突出项目用途和亮点，适合短视频口播。\n"
-            f"标题：{title}\n摘要：{summary[:150]}"
+            f"你是科技短视频主播。请为以下AI论文写一段35-55字的解说词，"
+            f"用通俗语言解释核心方法和创新点。\n"
+            f"标题：{title}\n"
+            f"方法概要：{method or abstract[:300]}"
         )
     else:
         prompt = (
-            f"你是科技短视频主播，正在录制一期具身智能快报。"
-            f"这是第{index}条，共{total}条新闻。\n"
-            f"请为以下新闻写一段25-45字的解说词。要求：\n"
-            f"- 语气自信、节奏明快，像新闻主播\n"
-            f"- 开头不要'大家好'，直接切入内容\n"
-            f"- 必须包含具体的公司名或产品名\n"
-            f"- 结尾不要'敬请期待'之类的套话\n\n"
+            f"你是科技短视频主播，正在录制具身智能快报第{index}条。\n"
+            f"请为以下新闻写一段30-50字的解说词。\n"
+            f"要求：语气自信、节奏明快，直接切入内容，"
+            f"必须包含具体公司名或产品名，不要套话。\n\n"
             f"标题：{title}\n摘要：{summary[:200]}\n来源：{source}"
         )
 
     try:
-        from dashscope import Generation
         rsp = Generation.call(
             model="qwen-turbo", api_key=api_key,
             messages=[{"role": "user", "content": prompt}],
@@ -66,9 +109,7 @@ def write_narration(item: dict, index: int, total: int, api_key: str) -> str:
     except Exception as e:
         print(f"  演讲稿生成失败: {e}", file=sys.stderr)
 
-    if method:
-        return method
-    return f"{title}。{summary[:60]}" if summary and summary != title else title
+    return method or (f"{title}。{summary[:60]}" if summary != title else title)
 
 
 def synthesize_tts(text: str, output_path: str) -> bool:
