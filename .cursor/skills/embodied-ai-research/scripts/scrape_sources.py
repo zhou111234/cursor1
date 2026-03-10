@@ -549,6 +549,89 @@ def fetch_robot_company_sites(sites: list[dict], keywords: list[str]) -> list[di
     return items
 
 
+def fetch_leaderboards(boards: list[dict]) -> list[dict]:
+    """从具身智能/机器人榜单获取第一名信息。
+    能直接解析HTML的用BeautifulSoup，JS渲染的用LLM联网搜索。"""
+    items = []
+    api_key = os.environ.get("DASHSCOPE_API_KEY", "")
+
+    for board in boards:
+        url = board.get("url", "")
+        name = board.get("name", "")
+        if not url:
+            continue
+
+        # 尝试直接解析HTML表格
+        leader_found = False
+        try:
+            html = fetch_url(url)
+            if html:
+                soup = BeautifulSoup(html, "html.parser")
+                for table in soup.find_all("table"):
+                    rows = table.find_all("tr")
+                    if len(rows) < 2:
+                        continue
+                    headers = [th.get_text(strip=True).lower() for th in rows[0].find_all(["th", "td"])]
+                    if any(kw in " ".join(headers) for kw in ["rank", "team", "model", "score", "success"]):
+                        first_row = rows[1].find_all(["td", "th"])
+                        cells = [c.get_text(strip=True) for c in first_row]
+                        if cells:
+                            leader_text = " | ".join(cells)
+                            items.append({
+                                "title": f"[{name}] 榜首: {cells[1] if len(cells) > 1 else cells[0]}",
+                                "summary": f"榜单: {name} | 第一名数据: {leader_text}",
+                                "source": f"榜单 | {name}",
+                                "url": url,
+                                "image_urls": [], "video_urls": [],
+                                "published_at": datetime.now(timezone.utc).isoformat(),
+                            })
+                            leader_found = True
+                            break
+        except Exception:
+            pass
+
+        # JS渲染页面：用LLM联网搜索获取榜单信息
+        if not leader_found and api_key:
+            try:
+                from dashscope import Generation
+                rsp = Generation.call(
+                    model="qwen-plus", api_key=api_key,
+                    messages=[{"role": "user", "content":
+                        f"请搜索 {name} ({url}) 榜单的最新排名信息。\n"
+                        f"告诉我：\n1. 当前第一名是哪个模型/团队？\n"
+                        f"2. 它的得分/指标是多少？\n"
+                        f"3. 这个榜单评测的是什么能力？\n"
+                        f'用中文回答，简洁准确。输出JSON对象: {{"top1_name":"...", "score":"...", "benchmark":"评测什么能力", "summary":"一句话总结"}}'}],
+                    result_format="message",
+                    enable_search=True,
+                )
+                if rsp.status_code == 200:
+                    content = rsp.output.choices[0].message.content.strip()
+                    if content.startswith("```"):
+                        content = re.sub(r"^```(?:json)?\s*", "", content)
+                        content = re.sub(r"\s*```$", "", content)
+                    match = re.search(r"\{.*\}", content, re.DOTALL)
+                    if match:
+                        d = json.loads(match.group())
+                        top1 = d.get("top1_name", "")
+                        if top1:
+                            items.append({
+                                "title": f"[{name}] 榜首: {top1}",
+                                "summary": (
+                                    f"榜单: {name} | 评测: {d.get('benchmark', '')} | "
+                                    f"得分: {d.get('score', '')} | {d.get('summary', '')}"
+                                ),
+                                "source": f"榜单 | {name}",
+                                "url": url,
+                                "image_urls": [], "video_urls": [],
+                                "published_at": datetime.now(timezone.utc).isoformat(),
+                            })
+            except Exception as e:
+                print(f"  榜单 {name} LLM搜索失败: {e}", file=sys.stderr)
+
+    return items
+
+
 def fetch_huggingface_orgs(orgs: list[dict], max_per_org: int = 3) -> list[dict]:
     """从指定的 HuggingFace 组织获取最新模型。"""
     items = []
@@ -707,6 +790,9 @@ def _dispatch_source(src: dict, keywords: list[str], project_root: Path) -> list
 
         if source_type == "github":
             return fetch_github_trending(src.get("queries", ["robotics"]))
+
+        if source_type == "leaderboard":
+            return fetch_leaderboards(src.get("boards", []))
 
         if source_type == "huggingface_orgs":
             return fetch_huggingface_orgs(

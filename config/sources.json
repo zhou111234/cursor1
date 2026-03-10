@@ -48,6 +48,19 @@
       ],
       "max_per_org": 3,
       "enabled": true
+    },
+    {
+      "id": "leaderboards",
+      "name": "具身智能榜单",
+      "type": "leaderboard",
+      "boards": [
+        {"url": "https://robochallenge.ai/leaderboard", "name": "RoboChallenge"},
+        {"url": "https://robotics-transformer-x.github.io/", "name": "RT-X (Robotics Transformer)"},
+        {"url": "https://aihabitat.org/challenge/2023_homerobot_ovmm/", "name": "Habitat HomeRobot OVMM"},
+        {"url": "https://ego-exo4d-data.org/", "name": "Ego-Exo4D"},
+        {"url": "https://www.nuscenes.org/nuplan", "name": "nuPlan"}
+      ],
+      "enabled": true
     }
   ]
 }
